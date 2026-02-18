@@ -29,9 +29,7 @@ if check_password():
     # 1. Fetch LIVE inventory data
     inv_resp = supabase.table('inventory').select("*").execute()
     if inv_resp.data:
-        inventory = pd.DataFrame(inv_resp.data)
-        # Sort by RM Code so it looks organized
-        inventory = inventory.sort_values('rm_code')
+        inventory = pd.DataFrame(inv_resp.data).sort_values('rm_code')
         ingredient_list = inventory['trade_name'].tolist()
     else:
         inventory = pd.DataFrame(columns=['id', 'rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'quantity_kg', 'function', 'recommended_use', 'tds_url', 'msds_url'])
@@ -40,15 +38,12 @@ if check_password():
     # --- PAGE 1: RAW MATERIAL LIBRARY ---
     if menu == "Raw Material Library":
         st.header("Raw Material Library")
-        
-        # Add a calculated column for Cost per Gram
         display_inv = inventory.copy()
         display_inv['Cost/gram ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format)
         
         st.dataframe(
             display_inv[['rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/gram ($)', 'quantity_kg', 'function']], 
-            use_container_width=True, 
-            hide_index=True
+            use_container_width=True, hide_index=True
         )
         
         st.divider()
@@ -58,7 +53,6 @@ if check_password():
             selected_display = st.selectbox("Select Material", display_names)
             selected_trade_name = selected_display.split("] ")[1]
             material_info = inventory[inventory['trade_name'] == selected_trade_name].iloc[0]
-            
             c1, c2 = st.columns(2)
             with c1:
                 if pd.notna(material_info.get('tds_url')) and material_info['tds_url'] != "":
@@ -92,7 +86,6 @@ if check_password():
                 if msds_f:
                     supabase.storage.from_("documents").upload(f"{rm_code}_MSDS.pdf", msds_f.getvalue())
                     m_url = supabase.storage.from_("documents").get_public_url(f"{rm_code}_MSDS.pdf")
-                
                 supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": new_trade, "inci_name": new_inci, "price_per_kg": new_price, "quantity_kg": new_qty, "function": new_func, "recommended_use": new_use, "tds_url": t_url, "msds_url": m_url}).execute()
                 st.success(f"{rm_code} added!")
                 st.rerun()
@@ -103,7 +96,6 @@ if check_password():
         f_resp = supabase.table('formulas').select('*').execute()
         formulas_df = pd.DataFrame(f_resp.data) if f_resp.data else pd.DataFrame()
 
-        # 1. Creation
         with st.expander("Build New Formula"):
             f_name = st.text_input("New Formula Name")
             if "builder" not in st.session_state: st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
@@ -117,7 +109,6 @@ if check_password():
 
         st.divider()
 
-        # 2. Production
         if not formulas_df.empty:
             st.subheader("⚗️ Batch Production")
             f_list = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in formulas_df.iterrows()]
@@ -135,10 +126,27 @@ if check_password():
                 m = inventory[inventory['trade_name'] == ing]
                 s_kg = float(m['quantity_kg'].values[0])
                 p_kg = float(m['price_per_kg'].values[0])
-                if s_kg < (req_g/1000): stock_ok = False
-                calc_data.append({"RM": m['rm_code'].values[0], "Ingredient": ing, "Needed (g)": req_g, "Cost": (req_g/1000)*p_kg, "Stock (Kg)": s_kg})
+                
+                has_enough = s_kg >= (req_g/1000)
+                if not has_enough: stock_ok = False
+                
+                calc_data.append({
+                    "RM": m['rm_code'].values[0],
+                    "Ingredient": ing,
+                    "Needed (g)": f"{req_g:.2f}g",
+                    "Stock (Kg)": f"{s_kg:.4f}Kg",
+                    "Status": "✅" if has_enough else "❌ Shortage",
+                    "Cost": (req_g/1000)*p_kg,
+                    "raw_req_kg": req_g/1000,
+                    "raw_stock_kg": s_kg
+                })
             
-            st.table(pd.DataFrame(calc_data))
+            # --- THE TABLE WITH STATUS RESTORED ---
+            display_table = pd.DataFrame(calc_data)
+            st.table(display_table[['RM', 'Ingredient', 'Needed (g)', 'Stock (Kg)', 'Status']])
+            
+            t_cost = sum([d['Cost'] for d in calc_data])
+            st.info(f"**Total Batch Cost: ${t_cost:.2f}**")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -148,23 +156,14 @@ if check_password():
             with col2:
                 if st.button("🚀 Produce Batch", type="primary", use_container_width=True):
                     if stock_ok:
-                        # LOGGING
                         log_resp = supabase.table('production_records').select("id").order("id", desc=True).limit(1).execute()
                         n_id = 1 if not log_resp.data else log_resp.data[0]['id'] + 1
-                        b_no = f"B-{n_id:05d}"
-                        l_no = f"LOT-{datetime.now().strftime('%Y%m%d')}-{n_id:02d}"
-                        t_cost = sum([d['Cost'] for d in calc_data])
-                        
-                        # UPDATE STOCK & SAVE LOG
+                        b_no = f"B-{n_id:05d}"; l_no = f"LOT-{datetime.now().strftime('%Y%m%d')}-{n_id:02d}"
                         for d in calc_data:
-                            supabase.table('inventory').update({'quantity_kg': d['Stock (Kg)'] - (d['Needed (g)']/1000)}).eq('trade_name', d['Ingredient']).execute()
-                        
+                            supabase.table('inventory').update({'quantity_kg': d['raw_stock_kg'] - d['raw_req_kg']}).eq('trade_name', d['Ingredient']).execute()
                         supabase.table('production_records').insert({"fr_code": code_only, "formula_name": name_only, "batch_number": b_no, "lot_number": l_no, "batch_size_g": b_size, "total_cost": t_cost}).execute()
-                        st.balloons()
-                        st.success(f"Produced! Batch: {b_no} | Lot: {l_no}")
-                        st.rerun()
-                    else:
-                        st.error("Cannot produce: Fix stock shortages.")
+                        st.balloons(); st.success(f"Produced! Batch: {b_no} | Lot: {l_no}"); st.rerun()
+                    else: st.error("Cannot produce: Fix stock shortages.")
 
     # --- PAGE 3: PRODUCTION LOGS ---
     elif menu == "Production Logs":
@@ -174,5 +173,4 @@ if check_password():
             df = pd.DataFrame(logs.data)
             df['Date'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
             st.dataframe(df[['Date', 'batch_number', 'lot_number', 'fr_code', 'formula_name', 'batch_size_g', 'total_cost']], use_container_width=True, hide_index=True)
-        else:
-            st.info("No records yet.")
+        else: st.info("No records yet.")
