@@ -25,21 +25,22 @@ def check_password():
 if check_password():
     menu = st.sidebar.radio("Navigation", ["Raw Material Library", "Formula Hub"])
 
-    # 1. Fetch LIVE data from Supabase Inventory
+    # 1. Fetch LIVE inventory data
     response = supabase.table('inventory').select("*").execute()
     if response.data:
         inventory = pd.DataFrame(response.data)
         ingredient_list = inventory['trade_name'].tolist()
     else:
-        inventory = pd.DataFrame(columns=['id', 'trade_name', 'inci_name', 'price_per_kg', 'quantity_kg', 'function', 'recommended_use', 'tds_url', 'msds_url'])
+        inventory = pd.DataFrame(columns=['id', 'rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'quantity_kg', 'function', 'recommended_use', 'tds_url', 'msds_url'])
         ingredient_list = []
 
     # --- PAGE 1: RAW MATERIAL LIBRARY ---
     if menu == "Raw Material Library":
         st.header("Raw Material Library")
         
+        # Display table with the new RM Code at the very front
         st.dataframe(
-            inventory[['trade_name', 'inci_name', 'price_per_kg', 'quantity_kg', 'function']], 
+            inventory[['rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'quantity_kg', 'function']], 
             use_container_width=True, 
             hide_index=True
         )
@@ -48,8 +49,12 @@ if check_password():
         # Document Vault
         st.subheader("📁 Document Vault")
         if not inventory.empty:
-            selected_material = st.selectbox("Select Material", inventory['trade_name'].tolist())
-            material_info = inventory[inventory['trade_name'] == selected_material].iloc[0]
+            # Show the RM code in the dropdown!
+            display_names = [f"[{row['rm_code']}] {row['trade_name']}" for _, row in inventory.iterrows()]
+            selected_display = st.selectbox("Select Material", display_names)
+            selected_trade_name = selected_display.split("] ")[1] # Extract just the name
+            
+            material_info = inventory[inventory['trade_name'] == selected_trade_name].iloc[0]
             
             col1, col2 = st.columns(2)
             with col1:
@@ -81,29 +86,37 @@ if check_password():
             
             submitted = st.form_submit_button("Save to Database")
             if submitted and new_trade != "":
+                # --- AUTO-GENERATE RM CODE ---
+                next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
+                new_rm_code = f"RM{next_id:05d}"
+                
                 tds_url = ""
                 msds_url = ""
                 if tds_file is not None:
-                    file_name = f"{new_trade.replace(' ', '_')}_TDS.pdf"
+                    file_name = f"{new_rm_code}_TDS.pdf" # Names the file with the strict RM Code!
                     supabase.storage.from_("documents").upload(file_name, tds_file.getvalue(), {"content-type": "application/pdf"})
                     tds_url = supabase.storage.from_("documents").get_public_url(file_name)
                 if msds_file is not None:
-                    file_name = f"{new_trade.replace(' ', '_')}_MSDS.pdf"
+                    file_name = f"{new_rm_code}_MSDS.pdf"
                     supabase.storage.from_("documents").upload(file_name, msds_file.getvalue(), {"content-type": "application/pdf"})
                     msds_url = supabase.storage.from_("documents").get_public_url(file_name)
 
                 new_data = {
-                    "trade_name": new_trade, "inci_name": new_inci, "price_per_kg": new_price,
-                    "quantity_kg": new_qty, "function": new_func, "recommended_use": new_use,
-                    "tds_url": tds_url, "msds_url": msds_url
+                    "rm_code": new_rm_code, "trade_name": new_trade, "inci_name": new_inci, 
+                    "price_per_kg": new_price, "quantity_kg": new_qty, "function": new_func, 
+                    "recommended_use": new_use, "tds_url": tds_url, "msds_url": msds_url
                 }
                 supabase.table('inventory').insert(new_data).execute()
-                st.success(f"{new_trade} saved!")
+                st.success(f"**{new_rm_code}** ({new_trade}) safely secured in the vault!")
                 st.rerun() 
 
     # --- PAGE 2: FORMULA HUB ---
     elif menu == "Formula Hub":
         st.header("🧪 The Formula Hub")
+        
+        # Fetch LIVE formula data to know the next FR code
+        formulas_response = supabase.table('formulas').select('*').execute()
+        formulas_df = pd.DataFrame(formulas_response.data) if formulas_response.data else pd.DataFrame(columns=['id', 'fr_code', 'formula_name', 'recipe'])
         
         # 1. BUILD A NEW FORMULA
         st.subheader("Create New Formula")
@@ -111,11 +124,9 @@ if check_password():
         
         st.write("**Build your formula (Must equal 100%)**")
         
-        # Create a blank slate for the interactive table
         if "formula_builder" not in st.session_state:
             st.session_state.formula_builder = pd.DataFrame([{"Ingredient": None, "Percentage (%)": 0.0}])
             
-        # The interactive data editor
         edited_df = st.data_editor(
             st.session_state.formula_builder,
             num_rows="dynamic",
@@ -123,7 +134,7 @@ if check_password():
             column_config={
                 "Ingredient": st.column_config.SelectboxColumn(
                     "Select Ingredient",
-                    options=ingredient_list, # Pulls directly from live database
+                    options=ingredient_list, 
                     required=True
                 ),
                 "Percentage (%)": st.column_config.NumberColumn(
@@ -136,7 +147,6 @@ if check_password():
             }
         )
         
-        # Live Math Validation
         total_percent = edited_df["Percentage (%)"].sum()
         
         if total_percent == 100.0:
@@ -152,14 +162,18 @@ if check_password():
             elif edited_df["Ingredient"].isnull().any():
                 st.error("Please select an ingredient for every row.")
             else:
-                # Convert the table into a dictionary and save to the vault
+                # --- AUTO-GENERATE FR CODE ---
+                next_fr_id = 1 if formulas_df.empty else int(formulas_df['id'].max()) + 1
+                new_fr_code = f"FR{next_fr_id:05d}"
+                
                 recipe_dict = dict(zip(edited_df["Ingredient"], edited_df["Percentage (%)"]))
                 supabase.table("formulas").insert({
+                    "fr_code": new_fr_code,
                     "formula_name": formula_name,
                     "recipe": recipe_dict
                 }).execute()
                 
-                st.success(f"'{formula_name}' permanently saved to the Hub!")
+                st.success(f"**{new_fr_code}** ('{formula_name}') permanently saved to the Hub!")
                 st.session_state.formula_builder = pd.DataFrame([{"Ingredient": None, "Percentage (%)": 0.0}])
                 st.rerun()
 
@@ -168,22 +182,19 @@ if check_password():
         # 2. CALCULATE BATCH COSTS
         st.subheader("⚗️ Batch Cost Calculator")
         
-        # Fetch saved formulas
-        formulas_response = supabase.table('formulas').select('*').execute()
-        
-        if formulas_response.data:
-            formulas_df = pd.DataFrame(formulas_response.data)
-            selected_formula = st.selectbox("Select a saved formula", formulas_df['formula_name'].tolist())
+        if not formulas_df.empty:
+            # Show the FR code in the dropdown
+            display_formulas = [f"[{row['fr_code']}] {row['formula_name']}" for _, row in formulas_df.iterrows()]
+            selected_display_formula = st.selectbox("Select a saved formula", display_formulas)
+            selected_formula_name = selected_display_formula.split("] ")[1]
             
             batch_size_g = st.number_input("Batch Size (grams)", min_value=1, value=100)
             
-            # Extract the recipe for the chosen formula
-            selected_recipe = formulas_df[formulas_df['formula_name'] == selected_formula].iloc[0]['recipe']
+            selected_recipe = formulas_df[formulas_df['formula_name'] == selected_formula_name].iloc[0]['recipe']
             
             total_batch_cost = 0
             cost_breakdown = []
             
-            # Calculate costs using LIVE inventory prices
             for ingredient, percentage in selected_recipe.items():
                 amount_needed_g = (percentage / 100) * batch_size_g
                 
@@ -195,6 +206,7 @@ if check_password():
                     total_batch_cost += ing_cost
                     
                     cost_breakdown.append({
+                        "RM Code": match['rm_code'].values[0],
                         "Ingredient": ingredient, 
                         "Amount Needed (g)": round(amount_needed_g, 2), 
                         "Cost ($)": f"${ing_cost:.2f}"
