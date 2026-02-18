@@ -30,13 +30,12 @@ if check_password():
     inventory = pd.DataFrame(response.data) if response.data else pd.DataFrame()
     ingredient_list = inventory['trade_name'].tolist() if not inventory.empty else []
 
-    # --- PAGE 1: RAW MATERIAL LIBRARY (No changes needed here) ---
+    # --- PAGE 1: RAW MATERIAL LIBRARY ---
     if menu == "Raw Material Library":
         st.header("Raw Material Library")
         st.dataframe(inventory[['rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'quantity_kg', 'function']], use_container_width=True, hide_index=True)
         st.divider()
         st.subheader("➕ Add New Raw Material")
-        # ... (Keeping your existing form logic) ...
         with st.form("add_material_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
@@ -58,13 +57,13 @@ if check_password():
                 st.success(f"{new_rm_code} saved!")
                 st.rerun()
 
-    # --- PAGE 2: FORMULA HUB (The Big Upgrade) ---
+    # --- PAGE 2: FORMULA HUB ---
     elif menu == "Formula Hub":
         st.header("🧪 The Formula Hub")
         formulas_response = supabase.table('formulas').select('*').execute()
         formulas_df = pd.DataFrame(formulas_response.data) if formulas_response.data else pd.DataFrame()
 
-        # ... (Keeping your Formula Creation logic) ...
+        # 1. Formula Creation
         st.subheader("Create New Formula")
         formula_name = st.text_input("Formula Name")
         if "formula_builder" not in st.session_state:
@@ -80,7 +79,7 @@ if check_password():
                 st.rerun()
         st.divider()
 
-        # --- BATCH PRODUCTION SECTION ---
+        # --- 2. BATCH PRODUCTION SECTION ---
         st.subheader("⚗️ Production Management")
         if not formulas_df.empty:
             display_formulas = [f"[{row['fr_code']}] {row['formula_name']}" for _, row in formulas_df.iterrows()]
@@ -90,47 +89,62 @@ if check_password():
             
             selected_recipe = formulas_df[formulas_df['formula_name'] == selected_formula_name].iloc[0]['recipe']
             
-            # --- STOCK CHECKING LOGIC ---
+            # --- PRE-CALCULATE DATA FOR DISPLAY ---
             stock_ok = True
-            check_results = []
+            production_data = []
             
             for ingredient, percentage in selected_recipe.items():
-                needed_kg = (percentage / 100 * batch_size_g) / 1000
-                current_stock_kg = float(inventory[inventory['trade_name'] == ingredient]['quantity_kg'].values[0])
+                needed_g = (percentage / 100 * batch_size_g)
+                needed_kg = needed_g / 1000
                 
-                status = "✅ Sufficient" if current_stock_kg >= needed_kg else "❌ Shortage"
+                # Fetch price and stock
+                match = inventory[inventory['trade_name'] == ingredient]
+                price_per_kg = float(match['price_per_kg'].values[0])
+                current_stock_kg = float(match['quantity_kg'].values[0])
+                
+                ing_cost = needed_g * (price_per_kg / 1000)
+                status = "✅" if current_stock_kg >= needed_kg else "❌"
                 if current_stock_kg < needed_kg: stock_ok = False
                 
-                check_results.append({
+                production_data.append({
+                    "RM Code": match['rm_code'].values[0],
                     "Ingredient": ingredient,
-                    "Required (Kg)": f"{needed_kg:.4f}",
-                    "In Stock (Kg)": f"{current_stock_kg:.4f}",
+                    "Required (g)": f"{needed_g:.2f}g",
+                    "Cost ($)": f"${ing_cost:.2f}",
+                    "In Stock (Kg)": f"{current_stock_kg:.4f}Kg",
                     "Status": status
                 })
 
-            # --- THE ACTION BUTTONS ---
+            # --- ALWAYS SHOW THE FORMULA BREAKDOWN ---
+            st.write(f"**Recipe Breakdown for {batch_size_g}g batch:**")
+            st.table(pd.DataFrame(production_data))
+            
+            total_cost = sum([float(x["Cost ($)"].replace('$', '')) for x in production_data])
+            st.info(f"**Total Batch Cost: ${total_cost:.2f}**")
+
+            # --- ACTION BUTTONS ---
             col_a, col_b = st.columns(2)
             
             with col_a:
-                if st.button("🔍 Check Stock Status", use_container_width=True):
-                    st.table(pd.DataFrame(check_results))
+                if st.button("🔍 Run Final Stock Check", use_container_width=True):
                     if stock_ok:
-                        st.success("Inventory levels are sufficient for this batch.")
+                        st.success("All ingredients available in Lebanon lab.")
                     else:
-                        st.error("Insufficient stock to produce this batch size.")
+                        st.error("Missing raw materials. Please check the 'Status' column above.")
 
             with col_b:
                 if st.button("🚀 Produce & Deduct", use_container_width=True, type="primary"):
                     if not stock_ok:
-                        st.error("Deduction blocked: Insufficient stock. Run 'Check Stock' for details.")
+                        st.error("Action Blocked: Fix stock shortages before producing.")
                     else:
-                        # Perform the actual deductions
-                        for row in check_results:
-                            ing = row["Ingredient"]
-                            needed = float(row["Required (Kg)"])
-                            new_stock = float(inventory[inventory['trade_name'] == ing]['quantity_kg'].values[0]) - needed
-                            supabase.table('inventory').update({'quantity_kg': new_stock}).eq('trade_name', ing).execute()
+                        for item in production_data:
+                            ing = item["Ingredient"]
+                            needed_kg = float(item["Required (g)"].replace('g', '')) / 1000
+                            current_val = float(inventory[inventory['trade_name'] == ing]['quantity_kg'].values[0])
+                            supabase.table('inventory').update({'quantity_kg': current_val - needed_kg}).eq('trade_name', ing).execute()
                         
                         st.balloons()
-                        st.success(f"Produced {batch_size_g}g of {selected_formula_name}!")
+                        st.success(f"Production of {selected_formula_name} complete!")
                         st.rerun()
+        else:
+            st.info("No formulas found in the Hub.")
