@@ -14,33 +14,70 @@ def check_password():
 
 # --- Main App ---
 if check_password():
-    st.success("Welcome to the Lab!")
     
-    menu = st.sidebar.radio("Navigation", ["Inventory", "Formula Calculator"])
+    menu = st.sidebar.radio("Navigation", ["Raw Material Library", "Formula Calculator"])
 
-    # --- INVENTORY DATABASE ---
-    # We define this at the top so both pages can use it
+    # --- MASTER DATABASE ---
+    # Upgraded to professional Kg and INCI standards
     materials_data = {
-        'Material': ['Rosemary Oil', 'Peppermint Oil', 'Cypress Oil', 'Sweet Almond Oil', 'Coconut Oil'],
-        'Stock_ml': [500, 400, 300, 2000, 1500],
-        'Cost_per_ml': [0.15, 0.12, 0.20, 0.05, 0.04]
+        'Trade Name': ['Rosemary Oil', 'Sweet Almond Oil', 'Cypress Oil', 'Peppermint Oil'],
+        'INCI Name': [
+            'Rosmarinus Officinalis Leaf Oil', 
+            'Prunus Amygdalus Dulcis Oil', 
+            'Cupressus Sempervirens Leaf Oil',
+            'Mentha Piperita Oil'
+        ],
+        'Price/Kg ($)': [150.00, 50.00, 200.00, 120.00],
+        'Remaining Quantity (Kg)': [0.5, 2.0, 0.3, 0.4],
+        'Function': ['Active / Hair Stimulant', 'Carrier / Emollient', 'Active / Astringent', 'Active / Cooling'],
+        'Recommended Use': ['1% - 2%', 'Up to 100%', '0.5% - 1%', '0.5% - 2%'],
+        'TDS_File': ['Attached', 'Attached', 'Attached', 'Attached'],
+        'MSDS_File': ['Attached', 'Attached', 'Attached', 'Attached']
     }
     inventory = pd.DataFrame(materials_data)
 
-    # --- PAGE 1: INVENTORY ---
-    if menu == "Inventory":
-        st.header("Raw Material Stock")
-        st.dataframe(inventory, use_container_width=True)
+    # --- PAGE 1: RAW MATERIAL LIBRARY ---
+    if menu == "Raw Material Library":
+        st.header("Raw Material Library")
         
-        if st.button("Log New Delivery"):
-            st.info("Inventory update feature coming next!")
+        # 1. The Clean Overview Table (Only shows the 4 requested columns)
+        overview_df = inventory[['Trade Name', 'INCI Name', 'Price/Kg ($)', 'Remaining Quantity (Kg)']]
+        st.dataframe(overview_df, use_container_width=True, hide_index=True)
+        
+        st.divider() # Draws a clean visual line
+        
+        # 2. The Detailed Dossier
+        st.subheader("Raw Material Dossier")
+        st.write("Select a material to view its full technical profile and documents.")
+        
+        # Dropdown to select a material
+        selected_material = st.selectbox("Select Raw Material", inventory['Trade Name'].tolist())
+        
+        # Extract the specific row of data for the chosen material
+        material_info = inventory[inventory['Trade Name'] == selected_material].iloc[0]
+        
+        # Display the info in two clean columns
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown(f"**INCI Name:** {material_info['INCI Name']}")
+            st.markdown(f"**Function:** {material_info['Function']}")
+            st.markdown(f"**Recommended Use:** {material_info['Recommended Use']}")
+            
+        with col2:
+            st.markdown(f"**Current Stock:** {material_info['Remaining Quantity (Kg)']} Kg")
+            st.markdown(f"**Price:** ${material_info['Price/Kg ($)']} / Kg")
+            # Mock buttons for document downloads
+            st.button(f"📄 Download TDS for {selected_material}")
+            st.button(f"⚠️ Download MSDS for {selected_material}")
+
 
     # --- PAGE 2: FORMULA CALCULATOR ---
     elif menu == "Formula Calculator":
         st.header("Production Costs: Hair Growth Oil")
         
-        # 1. The Recipe (Per 100ml Bottle)
-        st.subheader("Standard 100ml Recipe")
+        st.subheader("Standard 100g Recipe")
+        # Recipes usually use grams in professional formulations
         recipe = {
             'Rosemary Oil': 5,
             'Peppermint Oil': 2,
@@ -48,28 +85,24 @@ if check_password():
             'Sweet Almond Oil': 90
         }
         
-        # Display the recipe clearly
-        recipe_df = pd.DataFrame(list(recipe.items()), columns=['Ingredient', 'Amount (ml)'])
+        recipe_df = pd.DataFrame(list(recipe.items()), columns=['Ingredient', 'Amount (grams)'])
         st.table(recipe_df)
 
-        # 2. The Batch Calculator
         st.markdown("---")
         st.subheader("Batch Calculator")
-        batch_size = st.number_input("How many 100ml bottles are you making?", min_value=1, value=10)
+        batch_size = st.number_input("How many 100g bottles are you making?", min_value=1, value=10)
         
-        # 3. The Math Engine
         total_batch_cost = 0
         
         for ingredient, amount_per_bottle in recipe.items():
-            total_amount_needed = amount_per_bottle * batch_size
+            total_amount_needed_grams = amount_per_bottle * batch_size
             
-            # Find the cost per ml from our inventory database
-            cost_per_ml = inventory.loc[inventory['Material'] == ingredient, 'Cost_per_ml'].values[0]
+            # Find the Kg price and divide by 1000 to get the price per gram
+            price_per_kg = inventory.loc[inventory['Trade Name'] == ingredient, 'Price/Kg ($)'].values[0]
+            price_per_gram = price_per_kg / 1000
             
-            # Calculate total cost for this ingredient
-            ingredient_cost = total_amount_needed * cost_per_ml
+            ingredient_cost = total_amount_needed_grams * price_per_gram
             total_batch_cost += ingredient_cost
             
-        # 4. The Results
         st.success(f"**Total Cost to produce {batch_size} bottles: ${total_batch_cost:.2f}**")
         st.info(f"Cost per individual bottle: ${(total_batch_cost / batch_size):.2f}")
