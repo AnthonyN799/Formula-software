@@ -12,21 +12,36 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- Security ---
+# --- Authentication Logic ---
 def check_password():
+    """Returns True if the user had the correct password."""
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+
+    if st.session_state["authenticated"]:
+        return True
+
     st.title("Therapeutic Oils - Lab Portal")
     password = st.text_input("Enter Team Password", type="password")
-    if password == "lab2026": 
-        return True
-    elif password != "":
-        st.error("Incorrect password.")
+    
+    if st.button("Login"):
+        if password == "lab2026":
+            st.session_state["authenticated"] = True
+            st.rerun() # Refresh to hide the password box
+        else:
+            st.error("Incorrect password.")
     return False
 
 # --- Main App ---
 if check_password():
+    # Logout button in the sidebar
+    if st.sidebar.button("Logout"):
+        st.session_state["authenticated"] = False
+        st.rerun()
+
     menu = st.sidebar.radio("Navigation", ["Raw Material Library", "Formula Hub", "Production Logs"])
 
-    # Fetch LIVE data
+    # Fetch LIVE data from Supabase
     inv_resp = supabase.table('inventory').select("*").execute()
     inventory = pd.DataFrame(inv_resp.data).sort_values('rm_code') if inv_resp.data else pd.DataFrame()
 
@@ -34,15 +49,16 @@ if check_password():
     if menu == "Raw Material Library":
         st.header("Raw Material Library")
         
-        # Clean Professional View
         display_inv = inventory.copy()
-        display_inv['Cost/g ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format)
-        
-        st.dataframe(
-            display_inv[['rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']], 
-            use_container_width=True, 
-            hide_index=True
-        )
+        if not display_inv.empty:
+            display_inv['Cost/g ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format)
+            st.dataframe(
+                display_inv[['rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']], 
+                use_container_width=True, 
+                hide_index=True
+            )
+        else:
+            st.info("No materials in stock.")
 
         st.divider()
         st.subheader("➕ Add New Raw Material")
@@ -54,7 +70,9 @@ if check_password():
             with c2:
                 new_p = st.number_input("Price/Kg ($)", min_value=0.0)
                 new_q = st.number_input("Initial Qty (Kg)", min_value=0.0)
+            
             if st.form_submit_button("Save Material") and new_t != "":
+                # Automatic RM Code Generation
                 next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
                 rm_code = f"RM{next_id:05d}"
                 supabase.table('inventory').insert({
@@ -69,13 +87,14 @@ if check_password():
         f_resp = supabase.table('formulas').select('*').execute()
         formulas_df = pd.DataFrame(f_resp.data) if f_resp.data else pd.DataFrame()
 
-        # 1. New Formula Builder
         with st.expander("Build New Formula"):
             f_name = st.text_input("Formula Name")
             if "builder" not in st.session_state: 
                 st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
             edit_df = st.data_editor(st.session_state.builder, num_rows="dynamic", use_container_width=True)
+            
             if st.button("Save Formula") and f_name and edit_df["%"].sum() == 100.0:
+                # Automatic FR Code Generation
                 fr_c = f"FR{len(formulas_df)+1:05d}"
                 supabase.table("formulas").insert({
                     "fr_code": fr_c, "formula_name": f_name, 
@@ -85,7 +104,6 @@ if check_password():
 
         st.divider()
 
-        # 2. Production Logic
         if not formulas_df.empty:
             st.subheader("⚗️ Batch Production")
             f_list = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in formulas_df.iterrows()]
@@ -115,6 +133,7 @@ if check_password():
 
             if st.button("🚀 Produce Batch", type="primary", use_container_width=True):
                 if stock_ok:
+                    # Production Recording & Inventory Deduction
                     l_r = supabase.table('production_records').select("id").order("id", desc=True).limit(1).execute()
                     n_id = 1 if not l_r.data else l_r.data[0]['id'] + 1
                     b_no = f"B-{n_id:05d}"; l_no = f"LOT-{datetime.now().strftime('%Y%m%d')}-{n_id:02d}"
