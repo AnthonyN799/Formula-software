@@ -270,7 +270,7 @@ if check_password():
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 5. FORMULA HUB (UPGRADED WITH VERSIONING) ---
+    # --- 5. FORMULA HUB (UPGRADED WITH STRICT LINEAGE VERSIONING) ---
     elif menu == "Formula Hub":
         st.title("The Formula Hub")
         st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
@@ -321,26 +321,26 @@ if check_password():
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
-                    # VERSIONING AND DELETION
+                    # VERSIONING SYSTEM
                     st.divider()
                     c_act1, c_act2 = st.columns(2)
                     with c_act1:
                         with st.expander("🔄 Create New Edition (Version)"):
-                            st.info("Loads this recipe into the Architect below to create a new GMP-compliant version with a fresh FR code.")
+                            st.info("Locks this formula to the parent FR code and drops it into the Architect to draft a new edition (e.g., -2).")
                             if st.button("Load into Architect", use_container_width=True):
                                 df_data = [{"Ingredient": k, "%": v} for k, v in recipe_data.items()]
                                 st.session_state.builder = pd.DataFrame(df_data)
                                 
-                                # Auto-bump version number
                                 match = re.search(r' V(\d+)$', sel_f['formula_name'])
                                 if match:
                                     new_v = int(match.group(1)) + 1
                                     new_name = re.sub(r' V\d+$', f' V{new_v}', sel_f['formula_name'])
                                 else:
                                     new_name = f"{sel_f['formula_name']} V2"
-                                st.session_state.draft_name = new_name
-                                st.rerun()
                                 
+                                st.session_state.draft_name = new_name
+                                st.session_state.base_fr_code = sel_f['fr_code']
+                                st.rerun()
                     with c_act2:
                         with st.expander("System Actions: Erase Formula"):
                             del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
@@ -353,11 +353,21 @@ if check_password():
         with st.expander("⚙️ Architect New Formula", expanded=True):
             c_build, c_metrics = st.columns([3, 2])
             with c_build:
-                # Pre-fill name if coming from "Create New Edition"
+                if "base_fr_code" in st.session_state:
+                    base_disp = st.session_state.base_fr_code.split('-')[0]
+                    st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>🔗 LINKED PARENT CODE: {base_disp}</span>", unsafe_allow_html=True)
+                    if st.button("❌ Cancel Edition & Start Fresh"):
+                        st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
+                        if "draft_name" in st.session_state: del st.session_state["draft_name"]
+                        if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
+                        st.rerun()
+                    st.write("")
+                
                 f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil V2")
                 if "builder" not in st.session_state: st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
                 ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
                 edit_df = st.data_editor(st.session_state.builder, num_rows="dynamic", use_container_width=True, column_config={"Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options)})
+            
             with c_metrics:
                 st.write("<div style='margin-top: 2.2rem;'></div>", unsafe_allow_html=True)
                 st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Live Cost Analysis (1 Kg Batch)</p>", unsafe_allow_html=True)
@@ -371,18 +381,31 @@ if check_password():
                 if live_data: st.dataframe(pd.DataFrame(live_data), use_container_width=True, hide_index=True)
                 else: st.info("Select ingredients to see live costs.")
                 st.metric("Total Formula Cost / Kg", f"${total_cost_kg:,.2f}")
-                
                 total_perc = edit_df["%"].sum()
+                
                 if round(total_perc, 2) == 100.0:
                     st.success("✅ Formula is balanced (100%)")
                     if st.button("Commit Formula to Vault", type="primary", use_container_width=True) and f_name:
-                        fr_c = f"FR{len(formulas_df)+1:05d}"
+                        
+                        # Apply smart suffix logic based on the parent FR code
+                        if "base_fr_code" in st.session_state:
+                            base_code = st.session_state.base_fr_code.split('-')[0]
+                            existing_v_count = formulas_df[formulas_df['fr_code'].str.startswith(base_code)].shape[0]
+                            fr_c = f"{base_code}-{existing_v_count + 1}"
+                        else:
+                            if formulas_df.empty:
+                                fr_c = "FR00001"
+                            else:
+                                root_codes = formulas_df['fr_code'].str.extract(r'FR(\d{5})')[0].dropna().astype(int)
+                                next_id = root_codes.max() + 1 if not root_codes.empty else 1
+                                fr_c = f"FR{next_id:05d}"
+                                
                         supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": dict(zip(edit_df["Ingredient"], edit_df["%"]))}).execute()
                         
-                        # Clear builder and draft name after saving
+                        # Clear builder cache
                         st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
-                        if "draft_name" in st.session_state:
-                            del st.session_state["draft_name"]
+                        if "draft_name" in st.session_state: del st.session_state["draft_name"]
+                        if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
                         st.rerun()
                 else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
