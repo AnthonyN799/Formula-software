@@ -37,36 +37,52 @@ if check_password():
 
     menu = st.sidebar.radio("Navigation", ["Raw Material Library", "Packaging Library", "Formula Hub", "Production Logs"])
 
-    # --- 1. RAW MATERIAL LIBRARY (DIRECT SELECTION) ---
+    # --- 1. RAW MATERIAL LIBRARY (EDIT + SELECT TO INSPECT) ---
     if menu == "Raw Material Library":
         st.header("Raw Material Library")
         inv_resp = supabase.table('inventory').select("*").execute()
         inventory = pd.DataFrame(inv_resp.data).sort_values('rm_code') if inv_resp.data else pd.DataFrame()
         
         if not inventory.empty:
-            # High-Level Summary
             total_value = (inventory['price_per_kg'] * inventory['quantity_kg']).sum()
             st.metric("Total Raw Materials Inventory Value", f"${total_value:,.2f}")
             
-            st.write("💡 *Click the checkbox on the left of any row to inspect or delete it.*")
+            st.write("💡 *Click any text/number to edit it. Check the 🔍 box to inspect or delete a material.*")
             
-            # THE INTERACTIVE TABLE
             display_inv = inventory.copy()
             display_inv['Cost/g ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format)
+            display_inv.insert(0, '🔍 Select', False) # Checkbox column at the front
             
-            # FIXED: "single-row" with a dash
-            selected_rows = st.dataframe(
-                display_inv[['rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']],
+            # The Data Editor (Allows both editing and selecting via checkbox)
+            edited_inv = st.data_editor(
+                display_inv[['🔍 Select', 'rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']],
                 use_container_width=True,
                 hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row" 
+                disabled=['rm_code', 'Cost/g ($)'] # Protect auto-codes and calculations
             )
             
-            # Capture the selected row index
-            if selected_rows.selection.rows:
-                idx = selected_rows.selection.rows[0]
-                mat = inventory.iloc[idx]
+            # 1. Save Inline Edits
+            if st.button("💾 Save Inline Edits", type="primary"):
+                for index, row in edited_inv.iterrows():
+                    orig = inventory.loc[index]
+                    # Only update if something actually changed
+                    if (row['trade_name'] != orig['trade_name'] or row['inci_name'] != orig['inci_name'] or 
+                        row['price_per_kg'] != orig['price_per_kg'] or row['quantity_kg'] != orig['quantity_kg']):
+                        
+                        supabase.table('inventory').update({
+                            "trade_name": row['trade_name'],
+                            "inci_name": row['inci_name'],
+                            "price_per_kg": row['price_per_kg'],
+                            "quantity_kg": row['quantity_kg']
+                        }).eq('id', int(orig['id'])).execute()
+                st.success("Vault updated successfully!")
+                st.rerun()
+
+            # 2. Inspect & Delete (Triggers if a checkbox is selected)
+            selected_mats = edited_inv[edited_inv['🔍 Select'] == True]
+            if not selected_mats.empty:
+                mat_idx = selected_mats.index[0]
+                mat = inventory.loc[mat_idx]
                 
                 st.divider()
                 st.subheader(f"🔍 Inspecting: {mat['trade_name']}")
@@ -76,22 +92,18 @@ if check_password():
                     with c1:
                         st.write(f"**Code:** {mat['rm_code']}")
                         st.write(f"**INCI:** {mat['inci_name']}")
-                        st.write(f"**Function:** {mat['function']}")
                     with c2:
                         st.write(f"**Price/Kg:** ${mat['price_per_kg']:.2f}")
                         st.write(f"**Current Stock:** {mat['quantity_kg']} Kg")
                         st.write(f"**Value on Shelf:** ${(mat['price_per_kg'] * mat['quantity_kg']):.2f}")
                     
                     st.divider()
-                    
-                    # Protected Deletion inside the selected view
                     with st.expander("🗑️ Delete this Material"):
                         st.warning(f"This will permanently erase {mat['trade_name']} from the vault.")
                         del_pass = st.text_input("Enter 'lab2026' to confirm deletion", type="password", key="del_mat_p")
-                        if st.button(f"Permanently Delete {mat['rm_code']}", type="primary"):
+                        if st.button(f"Permanently Delete {mat['rm_code']}"):
                             if del_pass == "lab2026":
-                                supabase.table('inventory').delete().eq('id', mat['id']).execute()
-                                st.success("Record deleted.")
+                                supabase.table('inventory').delete().eq('id', int(mat['id'])).execute()
                                 st.rerun()
                             else:
                                 st.error("Incorrect passcode.")
@@ -115,38 +127,51 @@ if check_password():
                 supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q}).execute()
                 st.rerun()
 
-    # --- 2. PACKAGING LIBRARY (SAME SELECTION LOGIC) ---
+    # --- 2. PACKAGING LIBRARY (EDIT + SELECT TO INSPECT) ---
     elif menu == "Packaging Library":
         st.header("📦 Packaging Material Library")
         pk_resp = supabase.table('packaging').select("*").execute()
         packaging = pd.DataFrame(pk_resp.data).sort_values('pm_code') if pk_resp.data else pd.DataFrame()
         
         if not packaging.empty:
-            st.write("💡 *Click the checkbox on the left of any row to inspect or delete it.*")
+            st.write("💡 *Click to edit details, or check the 🔍 box to inspect/delete.*")
             
-            # FIXED: "single-row" with a dash
-            pk_select = st.dataframe(
-                packaging[['pm_code', 'material_name', 'supplier', 'cost_per_unit', 'remaining_quantity']],
+            display_pk = packaging.copy()
+            display_pk.insert(0, '🔍 Select', False)
+            
+            edited_pk = st.data_editor(
+                display_pk[['🔍 Select', 'pm_code', 'material_name', 'supplier', 'cost_per_unit', 'remaining_quantity']],
                 use_container_width=True, 
                 hide_index=True, 
-                on_select="rerun", 
-                selection_mode="single-row"
+                disabled=['pm_code']
             )
             
-            if pk_select.selection.rows:
-                p_idx = pk_select.selection.rows[0]
-                p_mat = packaging.iloc[p_idx]
+            if st.button("💾 Save Inline Edits", type="primary"):
+                for index, row in edited_pk.iterrows():
+                    orig = packaging.loc[index]
+                    if (row['material_name'] != orig['material_name'] or row['supplier'] != orig['supplier'] or 
+                        row['cost_per_unit'] != orig['cost_per_unit'] or row['remaining_quantity'] != orig['remaining_quantity']):
+                        supabase.table('packaging').update({
+                            "material_name": row['material_name'], "supplier": row['supplier'],
+                            "cost_per_unit": row['cost_per_unit'], "remaining_quantity": row['remaining_quantity']
+                        }).eq('id', int(orig['id'])).execute()
+                st.success("Packaging records synced!")
+                st.rerun()
+
+            selected_pk = edited_pk[edited_pk['🔍 Select'] == True]
+            if not selected_pk.empty:
+                p_idx = selected_pk.index[0]
+                p_mat = packaging.loc[p_idx]
                 
                 st.divider()
                 st.subheader(f"🔍 Inspecting: {p_mat['material_name']}")
-                
                 with st.container(border=True):
                     st.write(f"**Code:** {p_mat['pm_code']} | **Supplier:** {p_mat['supplier']}")
                     with st.expander("🗑️ Delete Packaging"):
                         p_pass = st.text_input("Confirm with Passcode", type="password", key="del_pkg_p")
-                        if st.button("Delete Item", type="primary"):
+                        if st.button("Delete Item"):
                             if p_pass == "lab2026":
-                                supabase.table('packaging').delete().eq('id', p_mat['id']).execute()
+                                supabase.table('packaging').delete().eq('id', int(p_mat['id'])).execute()
                                 st.rerun()
                             else:
                                 st.error("Incorrect passcode.")
