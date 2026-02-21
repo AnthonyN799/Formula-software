@@ -86,6 +86,9 @@ if check_password():
 
     formulas_resp = supabase.table('formulas').select('*').execute()
     formulas_df = pd.DataFrame(formulas_resp.data) if formulas_resp.data else pd.DataFrame()
+    
+    cogs_resp = supabase.table('cogs_records').select('*').execute()
+    cogs_records_df = pd.DataFrame(cogs_resp.data).sort_values('product_name') if cogs_resp.data else pd.DataFrame()
 
     # --- 1. FINANCIAL OVERVIEW ---
     if menu == "Financial Overview":
@@ -189,20 +192,20 @@ if check_password():
                     next_pm = 1 if packaging.empty else int(packaging['id'].max()) + 1
                     supabase.table('packaging').insert({"pm_code": f"PM{next_pm:05d}", "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q}).execute(); st.rerun()
 
-    # --- 4. FINISHED PRODUCTS LIBRARY ---
+    # --- 4. FINISHED PRODUCTS LIBRARY (CONNECTED TO COGS) ---
     elif menu == "Finished Products":
         st.title("Finished Products")
-        st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory and track physical product stock.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
         
         if not finished_goods.empty:
             display_fp = finished_goods.copy()
             display_fp.insert(0, '🔍', False)
             
-            st.write("💡 *Edit stock quantities or update prices directly in the table.*")
+            st.write("💡 *Edit stock quantities directly in the table below.*")
             with st.container(border=True):
                 edited_fp = st.data_editor(
                     display_fp[['🔍', 'fp_code', 'product_name', 'stock_quantity', 'unit_cogs', 'retail_price']],
-                    use_container_width=True, hide_index=True, disabled=['fp_code'],
+                    use_container_width=True, hide_index=True, disabled=['fp_code', 'unit_cogs', 'retail_price'],
                     column_config={
                         "unit_cogs": st.column_config.NumberColumn("Unit COGS", format="$%.2f"),
                         "retail_price": st.column_config.NumberColumn("Retail Price", format="$%.2f")
@@ -212,11 +215,9 @@ if check_password():
                 if st.button("💾 Synchronize Vault", type="primary"):
                     for idx, row in edited_fp.iterrows():
                         orig = finished_goods.loc[idx]
-                        if (row['product_name'] != orig['product_name'] or row['stock_quantity'] != orig['stock_quantity'] or 
-                            row['unit_cogs'] != orig['unit_cogs'] or row['retail_price'] != orig['retail_price']):
+                        if row['stock_quantity'] != orig['stock_quantity']:
                             supabase.table('finished_products').update({
-                                "product_name": row['product_name'], "stock_quantity": row['stock_quantity'],
-                                "unit_cogs": row['unit_cogs'], "retail_price": row['retail_price']
+                                "stock_quantity": row['stock_quantity']
                             }).eq('id', int(orig['id'])).execute()
                     st.success("Finished goods synced!")
                     st.rerun()
@@ -241,21 +242,52 @@ if check_password():
             st.info("No finished products currently in stock.")
 
         st.write("---")
-        with st.expander("➕ Log New Finished Product"):
-            with st.form("add_fp", clear_on_submit=True):
-                c1, c2 = st.columns(2)
-                fp_n = c1.text_input("Product Name (e.g. Actiflam 30ml)")
-                fp_q = c1.number_input("Quantity Produced", min_value=0)
-                fp_c = c2.number_input("Unit COGS ($)", min_value=0.0)
-                fp_r = c2.number_input("Target Retail Price ($)", min_value=0.0)
-                
-                if st.form_submit_button("Add to Stock") and fp_n != "":
-                    next_fp = 1 if finished_goods.empty else int(finished_goods['id'].max()) + 1
-                    supabase.table('finished_products').insert({
-                        "fp_code": f"FP{next_fp:05d}", "product_name": fp_n, 
-                        "stock_quantity": fp_q, "unit_cogs": fp_c, "retail_price": fp_r
-                    }).execute()
-                    st.rerun()
+        with st.expander("➕ Log New Finished Product Batch"):
+            if not cogs_records_df.empty:
+                with st.form("add_fp", clear_on_submit=True):
+                    c1, c2 = st.columns([2, 1])
+                    
+                    # Fetching from COGS
+                    cogs_opts = [f"[{r['id']}] {r['product_name']}" for _, r in cogs_records_df.iterrows()]
+                    sel_cogs = c1.selectbox("Select Target Product (From COGS Vault)", cogs_opts)
+                    fp_q = c2.number_input("Bottles Produced (Qty)", min_value=1, value=10, step=1)
+                    
+                    if st.form_submit_button("Add to Stock"):
+                        # Extract data from the selected COGS profile
+                        cogs_id = int(sel_cogs.split("]")[0].replace("[", ""))
+                        matched_cogs = cogs_records_df[cogs_records_df['id'] == cogs_id].iloc[0]
+                        
+                        target_name = matched_cogs['product_name']
+                        target_cogs = float(matched_cogs['total_cogs'])
+                        target_retail = float(matched_cogs['target_retail'])
+                        
+                        # Check if product already exists on the shelf
+                        existing_product = finished_goods[finished_goods['product_name'] == target_name]
+                        
+                        if not existing_product.empty:
+                            # Smart Restock: Add quantity and update to the latest prices
+                            existing_id = int(existing_product.iloc[0]['id'])
+                            new_qty = int(existing_product.iloc[0]['stock_quantity']) + fp_q
+                            
+                            supabase.table('finished_products').update({
+                                "stock_quantity": new_qty,
+                                "unit_cogs": target_cogs,
+                                "retail_price": target_retail
+                            }).eq('id', existing_id).execute()
+                        else:
+                            # Create new product entry
+                            next_fp = 1 if finished_goods.empty else int(finished_goods['id'].max()) + 1
+                            supabase.table('finished_products').insert({
+                                "fp_code": f"FP{next_fp:05d}", 
+                                "product_name": target_name, 
+                                "stock_quantity": fp_q, 
+                                "unit_cogs": target_cogs, 
+                                "retail_price": target_retail
+                            }).execute()
+                            
+                        st.rerun()
+            else:
+                st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
     # --- 5. FORMULA HUB ---
     elif menu == "Formula Hub":
@@ -447,14 +479,11 @@ if check_password():
                 else:
                     st.error("Please enter a Product Name before saving.")
 
-        # --- Saved COGS Profiles Vault (Editable) ---
+        # --- Saved COGS Profiles Vault ---
         st.write("---")
         st.markdown("#### 📂 Saved COGS Profiles")
-        cogs_resp = supabase.table('cogs_records').select('*').order('created_at', desc=True).execute()
-        
-        if cogs_resp.data:
-            cogs_df = pd.DataFrame(cogs_resp.data)
-            display_cogs = cogs_df.copy()
+        if not cogs_records_df.empty:
+            display_cogs = cogs_records_df.copy()
             display_cogs['Date'] = pd.to_datetime(display_cogs['created_at']).dt.strftime('%Y-%m-%d')
             display_cogs.insert(0, '🔍', False)
             
@@ -474,7 +503,7 @@ if check_password():
                 
                 if st.button("💾 Synchronize COGS Vault", type="primary"):
                     for index, row in edited_cogs.iterrows():
-                        orig = cogs_df.loc[index]
+                        orig = cogs_records_df.loc[index]
                         if row['product_name'] != orig['product_name'] or row['target_retail'] != orig['target_retail']:
                             new_retail = float(row['target_retail'])
                             new_cogs = float(orig['total_cogs'])
@@ -490,7 +519,7 @@ if check_password():
             
             selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
             if not selected_cogs.empty:
-                cogs_item = cogs_df.loc[selected_cogs.index[0]]
+                cogs_item = cogs_records_df.loc[selected_cogs.index[0]]
                 st.write("##")
                 with st.container(border=True):
                     st.markdown(f"#### {cogs_item['product_name']}")
