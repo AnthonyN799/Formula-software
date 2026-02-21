@@ -182,21 +182,30 @@ def check_password():
 if check_password():
     inject_custom_css()
     
+    # --- MODULAR SIDEBAR DESIGN ---
     with st.sidebar:
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
+        
         st.write("##")
-        menu = st.radio("System Menu", [
-            "Sales & Revenue",
-            "Financial Overview", 
-            "Balance Sheet",
-            "Raw Material Library", 
-            "Packaging Library", 
-            "Finished Products", 
-            "Formula Hub", 
-            "COGS Calculator", 
-            "Production Logs"
-        ])
+        st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Business Module</p>", unsafe_allow_html=True)
+        
+        system_module = st.selectbox(
+            "Module", 
+            ["📊 Finance & Sales", "📦 Inventory Management", "⚗️ R&D & Production"], 
+            label_visibility="collapsed"
+        )
+        
+        st.write("---")
+        st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Navigation</p>", unsafe_allow_html=True)
+        
+        if system_module == "📊 Finance & Sales":
+            menu = st.radio("Nav", ["Sales & Revenue", "Financial Overview", "Balance Sheet"], label_visibility="collapsed")
+        elif system_module == "📦 Inventory Management":
+            menu = st.radio("Nav", ["Raw Material Library", "Packaging Library", "Finished Products"], label_visibility="collapsed")
+        else:
+            menu = st.radio("Nav", ["Formula Hub", "COGS Calculator", "Production Logs"], label_visibility="collapsed")
+            
         st.write("<br><br>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.rerun()
 
@@ -401,7 +410,6 @@ if check_password():
         st.title("Balance Sheet Generator")
         st.markdown("<p style='color: #64748B;'>Generate a professional financial statement summarizing assets, liabilities, and owner's equity.</p>", unsafe_allow_html=True)
         
-        # Auto-calculate known assets
         rm_total = (inventory['price_per_kg'] * inventory['quantity_kg']).sum() if not inventory.empty else 0.0
         pm_total = (packaging['cost_per_unit'] * packaging['remaining_quantity']).sum() if not packaging.empty else 0.0
         fp_cogs_total = (finished_goods['unit_cogs'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
@@ -421,7 +429,6 @@ if check_password():
                 st.write(f"**Inventory (Raw Materials):** ${rm_total:,.2f}")
                 st.write(f"**Inventory (Packaging):** ${pm_total:,.2f}")
                 st.write(f"**Inventory (Finished Goods COGS):** ${fp_cogs_total:,.2f}")
-                
                 st.write("---")
                 st.markdown("**Fixed Assets**")
                 fixed_assets = st.number_input("Property & Equipment Value ($)", min_value=0.0, value=0.0, step=100.0)
@@ -449,14 +456,11 @@ if check_password():
             
             if owner_equity == (total_assets - total_liabilities):
                 st.success("✅ The Balance Sheet is perfectly balanced (Assets = Liabilities + Equity).")
-                
-                # Generate PDF
                 date_str = datetime.today().strftime('%B %d, %Y')
                 pdf_bytes = generate_balance_sheet_pdf(
                     date_str, cash, ar_total, rm_total, pm_total, fp_cogs_total, 
                     fixed_assets, accounts_payable, debt, total_assets, total_liabilities, owner_equity
                 )
-                
                 st.download_button(
                     label="📄 Download Official PDF Balance Sheet",
                     data=pdf_bytes,
@@ -753,7 +757,7 @@ if check_password():
                         st.rerun()
                     st.write("")
                 
-                f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil V2")
+                f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil")
                 
                 if "builder" not in st.session_state: 
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
@@ -784,9 +788,7 @@ if check_password():
                 st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Live Cost Analysis (1 Kg Batch)</p>", unsafe_allow_html=True)
                 total_cost_kg = 0.0; live_data = []
                 for _, row in edit_df.iterrows():
-                    ing = row.get('Ingredient')
-                    perc = row.get('%', 0.0)
-                    phase = row.get('Phase', 'A')
+                    ing = row.get('Ingredient'); perc = row.get('%', 0.0); phase = row.get('Phase', 'A')
                     if ing and pd.notna(ing) and ing in inventory['trade_name'].values:
                         price = float(inventory[inventory['trade_name'] == ing]['price_per_kg'].values[0])
                         cost_contrib = (perc / 100.0) * price; total_cost_kg += cost_contrib
@@ -802,17 +804,12 @@ if check_password():
                 
                 if round(total_perc, 2) == 100.0:
                     st.success("✅ Formula is balanced (100%)")
-                    
                     btn_label = "💾 Update Existing Edition" if "edit_formula_id" in st.session_state else "Commit Formula to Vault"
-                    
                     if st.button(btn_label, type="primary", use_container_width=True) and f_name:
                         recipe_json = edit_df.to_dict(orient='records')
-                        
                         if "edit_formula_id" in st.session_state:
                             supabase.table("formulas").update({
-                                "formula_name": f_name, 
-                                "recipe": recipe_json,
-                                "procedure": procedure_text
+                                "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text
                             }).eq('id', st.session_state.edit_formula_id).execute()
                         else:
                             if "base_fr_code" in st.session_state:
@@ -827,10 +824,7 @@ if check_password():
                                     next_id = root_codes.max() + 1 if not root_codes.empty else 1
                                     fr_c = f"FR{next_id:05d}"
                             
-                            supabase.table("formulas").insert({
-                                "fr_code": fr_c, "formula_name": f_name, 
-                                "recipe": recipe_json, "procedure": procedure_text
-                            }).execute()
+                            supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).execute()
                             
                         st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                         for key in ["draft_name", "base_fr_code", "draft_procedure", "edit_formula_id", "edit_fr_code"]:
@@ -877,7 +871,6 @@ if check_password():
         if sel_form:
             n_only = sel_form.split("] ")[1]
             rec = formulas_df[formulas_df['formula_name'] == n_only].iloc[0]['recipe']
-            
             if isinstance(rec, dict):
                 rec_items = [{"Ingredient": k, "%": v} for k, v in rec.items()]
             elif isinstance(rec, list):
@@ -886,8 +879,7 @@ if check_password():
                 rec_items = []
                 
             for row in rec_items:
-                ing = row.get('Ingredient')
-                p = row.get('%', 0)
+                ing = row.get('Ingredient'); p = row.get('%', 0)
                 req_g = (p/100) * fill_wt
                 m = inventory[inventory['trade_name'] == ing]
                 if not m.empty:
@@ -903,7 +895,6 @@ if check_password():
 
         st.markdown("#### Cost Breakdown & Profit Margin")
         r1, r2 = st.columns([2, 1])
-        
         with r1:
             st.dataframe(pd.DataFrame([
                 {"Component": "Formula (Bulk Oil)", "Cost per Unit": f"${bulk_cost:.4f}"},
@@ -918,7 +909,6 @@ if check_password():
             with st.container(border=True):
                 st.metric("Total COGS per Unit", f"${total_cogs:.2f}")
                 target_retail = st.number_input("Target Retail Price ($)", min_value=0.0, value=total_cogs * 4 if total_cogs > 0 else 0.0, step=1.0)
-                
                 margin_pct = 0.0
                 if target_retail > 0:
                     gross_profit = target_retail - total_cogs
@@ -931,7 +921,6 @@ if check_password():
             st.markdown("#### 💾 Save COGS Configuration")
             sc1, sc2 = st.columns([3, 1])
             cogs_name = sc1.text_input("Product Name / SKU", placeholder="e.g., Actiflam 30ml Retail Bottle")
-            
             sc2.write("<br>", unsafe_allow_html=True)
             if sc2.button("Commit Profile to Vault", type="primary", use_container_width=True):
                 if cogs_name:
@@ -952,19 +941,16 @@ if check_password():
             display_cogs = cogs_records_df.copy()
             display_cogs['Date'] = pd.to_datetime(display_cogs['created_at']).dt.strftime('%Y-%m-%d')
             display_cogs.insert(0, '🔍', False)
-            
             with st.container(border=True):
                 edited_cogs = st.data_editor(
                     display_cogs[['🔍', 'Date', 'product_name', 'formula_name', 'fill_weight_g', 'total_cogs', 'target_retail', 'gross_margin_pct']],
-                    use_container_width=True, hide_index=True, 
-                    disabled=['Date', 'formula_name', 'fill_weight_g', 'total_cogs', 'gross_margin_pct'],
+                    use_container_width=True, hide_index=True, disabled=['Date', 'formula_name', 'fill_weight_g', 'total_cogs', 'gross_margin_pct'],
                     column_config={
                         "total_cogs": st.column_config.NumberColumn("Total COGS", format="$%.2f"),
                         "target_retail": st.column_config.NumberColumn("Target Retail", format="$%.2f"),
                         "gross_margin_pct": st.column_config.NumberColumn("Margin %", format="%.1f%%")
                     }
                 )
-                
                 if st.button("💾 Synchronize COGS Vault", type="primary"):
                     for index, row in edited_cogs.iterrows():
                         orig = cogs_records_df.loc[index]
@@ -972,13 +958,9 @@ if check_password():
                             new_retail = float(row['target_retail'])
                             new_cogs = float(orig['total_cogs'])
                             new_margin = ((new_retail - new_cogs) / new_retail * 100) if new_retail > 0 else 0.0
-                            
-                            supabase.table('cogs_records').update({
-                                "product_name": row['product_name'], "target_retail": new_retail, "gross_margin_pct": new_margin
-                            }).eq('id', int(orig['id'])).execute()
+                            supabase.table('cogs_records').update({"product_name": row['product_name'], "target_retail": new_retail, "gross_margin_pct": new_margin}).eq('id', int(orig['id'])).execute()
                     st.success("COGS profiles synced!")
                     st.rerun()
-            
             selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
             if not selected_cogs.empty:
                 cogs_item = cogs_records_df.loc[selected_cogs.index[0]]
@@ -987,16 +969,13 @@ if check_password():
                     st.markdown(f"#### {cogs_item['product_name']}")
                     st.write(f"**Base Formula:** {cogs_item['formula_name']} ({cogs_item['fill_weight_g']}g fill)")
                     st.write(f"**Primary Packaging:** {cogs_item['primary_packaging']}")
-                    
                     with st.expander("System Actions"):
                         del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
                         if st.button("Erase COGS Profile"):
                             if del_cogs_pass == "lab2026":
                                 supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); st.rerun()
-                            else:
-                                st.error("Incorrect passcode.")
-        else:
-            st.info("No COGS profiles saved in the vault.")
+                            else: st.error("Incorrect passcode.")
+        else: st.info("No COGS profiles saved in the vault.")
 
     # --- 9. PRODUCTION LOGS ---
     elif menu == "Production Logs":
