@@ -257,10 +257,10 @@ if check_password():
                         st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}]); st.rerun()
                 else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
-    # --- 5. COGS CALCULATOR (NEW) ---
+    # --- 5. COGS CALCULATOR (UPGRADED WITH SAVE FUNCTION) ---
     elif menu == "COGS Calculator":
         st.title("Cost of Goods Sold (COGS)")
-        st.markdown("<p style='color: #64748B;'>Calculate unit economics and profit margins for your finished products.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
         
         f_resp = supabase.table('formulas').select('*').execute()
         formulas_df = pd.DataFrame(f_resp.data) if f_resp.data else pd.DataFrame()
@@ -269,25 +269,20 @@ if check_password():
             st.markdown("#### Step 1: Physical Product Specs")
             c1, c2, c3 = st.columns(3)
             
-            # 1. Select Formula
             if not formulas_df.empty:
                 f_opts = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in formulas_df.iterrows()]
                 sel_form = c1.selectbox("Base Formula", f_opts)
             else:
-                sel_form = None
-                c1.warning("No formulas in vault.")
+                sel_form = None; c1.warning("No formulas in vault.")
                 
-            # 2. Fill Weight
             fill_wt = c2.number_input("Fill Weight per Unit (grams)", min_value=1.0, value=30.0, step=5.0)
             
-            # 3. Select Primary Packaging
             if not packaging.empty:
                 p_opts = [f"[{r['pm_code']}] {r['material_name']}" for _, r in packaging.iterrows()]
                 p_opts.insert(0, "None / Custom")
                 sel_pack = c3.selectbox("Primary Packaging", p_opts)
             else:
-                sel_pack = "None / Custom"
-                c3.warning("No packaging in vault.")
+                sel_pack = "None / Custom"; c3.warning("No packaging in vault.")
 
         with st.container(border=True):
             st.markdown("#### Step 2: Component & Variable Costs (per unit)")
@@ -295,7 +290,7 @@ if check_password():
             cost_mfg = cm1.number_input("Labor / Mfg ($)", min_value=0.0, value=0.10, step=0.05)
             cost_lbl = cm2.number_input("Label Cost ($)", min_value=0.0, value=0.05, step=0.05)
             cost_sec = cm3.number_input("Secondary Box ($)", min_value=0.0, value=0.00, step=0.05)
-            cost_ter = cm4.number_input("Tertiary/Carton ($)", min_value=0.0, value=0.00, step=0.05, help="Cost of master carton divided per unit.")
+            cost_ter = cm4.number_input("Tertiary/Carton ($)", min_value=0.0, value=0.00, step=0.05)
 
         st.write("##")
 
@@ -318,7 +313,7 @@ if check_password():
 
         total_cogs = bulk_cost + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
 
-        # --- Financial Results ---
+        # --- Financial Results & Saving ---
         st.markdown("#### Cost Breakdown & Profit Margin")
         r1, r2 = st.columns([2, 1])
         
@@ -331,6 +326,28 @@ if check_password():
                 {"Component": "Tertiary Packaging", "Cost per Unit": f"${cost_ter:.4f}"},
                 {"Component": "Labor / Mfg Overhead", "Cost per Unit": f"${cost_mfg:.4f}"}
             ]), use_container_width=True, hide_index=True)
+            
+            # Save COGS Section
+            st.write("##")
+            st.markdown("#### Save COGS Configuration")
+            sc1, sc2 = st.columns([2, 1])
+            cogs_name = sc1.text_input("Product Name / SKU", placeholder="e.g., Actiflam 30ml Retail Bottle")
+            
+            margin_pct = 0.0 # Define globally
+            target_retail = 0.0
+            
+            if sc2.button("💾 Save COGS Profile", type="primary", use_container_width=True):
+                if cogs_name:
+                    supabase.table('cogs_records').insert({
+                        "product_name": cogs_name, "formula_name": n_only if sel_form else "None",
+                        "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom",
+                        "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl,
+                        "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct
+                    }).execute()
+                    st.success(f"Saved profile: {cogs_name}")
+                    st.rerun()
+                else:
+                    st.error("Please enter a Product Name before saving.")
 
         with r2:
             with st.container(border=True):
@@ -342,6 +359,46 @@ if check_password():
                     margin_pct = (gross_profit / target_retail) * 100
                     st.write("---")
                     st.metric("Gross Profit", f"${gross_profit:.2f}", f"{margin_pct:.1f}% Margin")
+
+        # --- Saved COGS Profiles Vault ---
+        st.write("---")
+        st.markdown("#### 📂 Saved COGS Profiles")
+        cogs_resp = supabase.table('cogs_records').select('*').order('created_at', desc=True).execute()
+        
+        if cogs_resp.data:
+            cogs_df = pd.DataFrame(cogs_resp.data)
+            display_cogs = cogs_df.copy()
+            
+            # Format columns cleanly
+            display_cogs['Date'] = pd.to_datetime(display_cogs['created_at']).dt.strftime('%Y-%m-%d')
+            display_cogs['total_cogs'] = display_cogs['total_cogs'].map('${:,.2f}'.format)
+            display_cogs['target_retail'] = display_cogs['target_retail'].map('${:,.2f}'.format)
+            display_cogs['gross_margin_pct'] = display_cogs['gross_margin_pct'].map('{:,.1f}%'.format)
+            display_cogs.insert(0, '🔍', False)
+            
+            with st.container(border=True):
+                edited_cogs = st.data_editor(
+                    display_cogs[['🔍', 'Date', 'product_name', 'formula_name', 'fill_weight_g', 'total_cogs', 'target_retail', 'gross_margin_pct']],
+                    use_container_width=True, hide_index=True, disabled=['Date', 'product_name', 'formula_name', 'fill_weight_g', 'total_cogs', 'target_retail', 'gross_margin_pct']
+                )
+            
+            selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
+            if not selected_cogs.empty:
+                cogs_item = cogs_df.loc[selected_cogs.index[0]]
+                st.write("##")
+                with st.container(border=True):
+                    st.markdown(f"#### {cogs_item['product_name']}")
+                    st.write(f"**Base Formula:** {cogs_item['formula_name']} ({cogs_item['fill_weight_g']}g fill)")
+                    st.write(f"**Primary Packaging:** {cogs_item['primary_packaging']}")
+                    
+                    with st.expander("System Actions"):
+                        del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
+                        if st.button("Erase COGS Profile"):
+                            if del_cogs_pass == "lab2026":
+                                supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute()
+                                st.rerun()
+        else:
+            st.info("No COGS profiles saved in the vault.")
 
     # --- 6. PRODUCTION LOGS ---
     elif menu == "Production Logs":
