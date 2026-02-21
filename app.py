@@ -12,18 +12,30 @@ except FileNotFoundError:
     st.set_page_config(page_title="Therapeutic Oils | Lab Portal", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. CUSTOM CSS FOR PREMIUM UI ---
+# --- 2. CUSTOM CSS FOR PREMIUM UI ---
 def inject_custom_css():
     st.markdown("""
         <style>
-        #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+        /* Hide default Streamlit elements, but KEEP the header active for the sidebar toggle */
+        #MainMenu {visibility: hidden;} 
+        footer {visibility: hidden;} 
+        header {background-color: transparent !important;} /* Fixed: Allows sidebar to reopen */
+        
+        /* Main App Background & Typography */
         .stApp { background-color: #FAFAFA; font-family: 'Inter', -apple-system, sans-serif; }
+        
+        /* Metric Cards Styling */
         [data-testid="stMetricValue"] { font-size: 2.2rem; font-weight: 300; color: #1E293B; letter-spacing: -0.02em; }
         [data-testid="stMetricLabel"] { font-size: 0.85rem; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; }
         [data-testid="metric-container"] { background-color: #FFFFFF; border: 1px solid #E2E8F0; padding: 1.5rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+        
+        /* Clean Buttons */
         .stButton>button { border-radius: 4px; font-weight: 500; border: 1px solid #CBD5E1; background-color: #FFFFFF; color: #334155; transition: all 0.2s ease; }
         .stButton>button:hover { border-color: #94A3B8; color: #0F172A; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .stButton>button[kind="primary"] { background-color: #0F172A; color: #FFFFFF; border: none; }
         .stButton>button[kind="primary"]:hover { background-color: #1E293B; }
+        
+        /* Clean Headers */
         h1, h2, h3 { color: #0F172A; font-weight: 400; letter-spacing: -0.01em; }
         </style>
     """, unsafe_allow_html=True)
