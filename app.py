@@ -58,21 +58,18 @@ def generate_order_pdf(order_ref, items_df, client_name, date_str):
     pdf = FPDF()
     pdf.add_page()
     
-    # Header
     pdf.set_font("Arial", "B", 18)
     pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
     pdf.set_font("Arial", "", 12)
     pdf.cell(0, 8, "Official Order Summary", ln=True, align="C")
     pdf.ln(10)
     
-    # Client & Order Details
     pdf.set_font("Arial", "B", 11)
     pdf.cell(100, 8, f"Billed To: {client_name}")
     pdf.cell(0, 8, f"Date: {date_str}", ln=True, align="R")
     pdf.cell(0, 8, f"Order Ref: {order_ref}", ln=True, align="R")
     pdf.ln(5)
     
-    # Table Header
     pdf.set_font("Arial", "B", 10)
     pdf.cell(90, 8, "Product Description", border=1)
     pdf.cell(25, 8, "Qty", border=1, align="C")
@@ -80,7 +77,6 @@ def generate_order_pdf(order_ref, items_df, client_name, date_str):
     pdf.cell(40, 8, "Line Total", border=1, align="R")
     pdf.ln()
     
-    # Table Rows
     pdf.set_font("Arial", "", 10)
     grand_total = 0.0
     for _, row in items_df.iterrows():
@@ -96,12 +92,10 @@ def generate_order_pdf(order_ref, items_df, client_name, date_str):
         pdf.cell(40, 8, f"${total:,.2f}", border=1, align="R")
         pdf.ln()
         
-    # Grand Total
     pdf.set_font("Arial", "B", 10)
     pdf.cell(150, 8, "Grand Total", border=1, align="R")
     pdf.cell(40, 8, f"${grand_total:,.2f}", border=1, align="R")
     
-    # Return as bytes
     return pdf.output(dest="S").encode("latin-1")
 
 # --- Authentication Logic ---
@@ -187,7 +181,6 @@ if check_password():
             st.write(f"**Annual Target Progress:** {progress_pct*100:.1f}% (${yr_rev:,.0f} / ${annual_target:,.0f})")
             st.progress(progress_pct)
             
-            # Interactive Ledger
             st.write("---")
             st.markdown("#### Transaction Ledger & Order Management")
             st.write("💡 *Update the 'Status' dropdown directly. Check the 🔍 box to inspect the full order, download the PDF invoice, or reverse it.*")
@@ -218,18 +211,15 @@ if check_password():
                     st.success("Ledger payments synchronized!")
                     st.rerun()
 
-            # ORDER INSPECTION & PDF EXPORT
             selected_sales = edited_sales[edited_sales['🔍'] == True]
             if not selected_sales.empty:
                 sel_id = selected_sales.iloc[0]['id']
                 sale_item = yr_df[yr_df['id'] == sel_id].iloc[0]
                 ref_num = sale_item['order_ref_number']
                 
-                # Fetch all items in this specific order
                 if pd.notna(ref_num) and str(ref_num).strip() != "":
                     order_items = yr_df[yr_df['order_ref_number'] == ref_num]
                 else:
-                    # If no ref number, just show the single line item
                     order_items = pd.DataFrame([sale_item])
                 
                 st.write("##")
@@ -242,28 +232,13 @@ if check_password():
                     st.metric("Total Order Value", f"${order_total:,.2f}")
                     
                     col_pdf, col_rev = st.columns(2)
-                    
                     with col_pdf:
-                        # Generate the PDF byte stream
-                        pdf_bytes = generate_order_pdf(
-                            str(ref_num), 
-                            order_items, 
-                            str(sale_item['account']), 
-                            sale_item['sale_date'].strftime('%Y-%m-%d')
-                        )
-                        st.download_button(
-                            label="📄 Download PDF Order Summary",
-                            data=pdf_bytes,
-                            file_name=f"TherapeuticOils_Order_{ref_num}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
-                        
+                        pdf_bytes = generate_order_pdf(str(ref_num), order_items, str(sale_item['account']), sale_item['sale_date'].strftime('%Y-%m-%d'))
+                        st.download_button(label="📄 Download PDF Order Summary", data=pdf_bytes, file_name=f"TherapeuticOils_Order_{ref_num}.pdf", mime="application/pdf", use_container_width=True)
                     with col_rev:
                         with st.expander("⚠️ System Actions: Reverse Line Item"):
                             st.warning(f"This will erase **this specific line item** ({sale_item['order_description']}) and return **{sale_item['quantity']} units** back to the vault.")
                             rev_pass = st.text_input("Authorization Passcode", type="password", key=f"rev_{sel_id}")
-                            
                             if st.button("Reverse Sale & Restore Stock", type="primary"):
                                 if rev_pass == "lab2026":
                                     fp_match = finished_goods[finished_goods['product_name'] == sale_item['order_description']]
@@ -272,9 +247,7 @@ if check_password():
                                         current_stock = int(fp_match.iloc[0]['stock_quantity'])
                                         new_stock = current_stock + int(sale_item['quantity'])
                                         supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', fp_id).execute()
-                                    
                                     supabase.table('sales_records').delete().eq('id', int(sel_id)).execute()
-                                    
                                     st.success("Transaction reversed! Financials updated and stock restored.")
                                     time.sleep(1)
                                     st.rerun()
@@ -283,13 +256,11 @@ if check_password():
         else:
             st.info("No sales records imported or logged yet.")
 
-        # Log New Sale Form
         st.write("---")
         with st.expander("➕ Log New Sales Order (Deducts from Stock)", expanded=False):
             if not finished_goods.empty:
                 with st.form("add_sale", clear_on_submit=True):
                     s1, s2, s3 = st.columns(3)
-                    
                     fp_opts = finished_goods['product_name'].tolist()
                     sel_product = s1.selectbox("Finished Product Sold", fp_opts)
                     qty_sold = s2.number_input("Quantity Sold", min_value=1, value=1, step=1)
@@ -301,7 +272,6 @@ if check_password():
                     channel = c3.selectbox("Channel", ["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"])
                     
                     c_price, c_status = st.columns(2)
-                    
                     fg_match = finished_goods[finished_goods['product_name'] == sel_product].iloc[0]
                     default_price = float(fg_match['retail_price'])
                     unit_cogs = float(fg_match['unit_cogs'])
@@ -318,19 +288,14 @@ if check_password():
                             total_cogs = qty_sold * unit_cogs
                             net = gross - total_cogs
                             gm = (net / gross) if gross > 0 else 0.0
-                            
                             new_stock = current_stock - qty_sold
                             supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_match['id'])).execute()
-                            
                             supabase.table('sales_records').insert({
-                                "order_description": sel_product,
-                                "quantity": qty_sold, "unit_price": unit_price,
+                                "order_description": sel_product, "quantity": qty_sold, "unit_price": unit_price,
                                 "gross_revenue": gross, "cogs": total_cogs, "net_profit": net,
                                 "account": client, "order_ref_number": order_ref,
-                                "sale_date": sale_date.strftime('%Y-%m-%d'),
-                                "gm": gm, "channel": channel, "status": status
+                                "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": channel, "status": status
                             }).execute()
-                            
                             st.success(f"Order logged! {qty_sold} units deducted from Finished Products.")
                             time.sleep(1)
                             st.rerun()
@@ -516,7 +481,7 @@ if check_password():
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 6. FORMULA HUB ---
+    # --- 6. FORMULA HUB (UPGRADED WITH PHASES & PROCEDURE) ---
     elif menu == "Formula Hub":
         st.title("The Formula Hub")
         st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
@@ -530,14 +495,27 @@ if check_password():
                 sel_f = formulas_df.iloc[f_idx]
                 recipe_data = sel_f['recipe']
                 
+                # Backward Compatibility Engine: Converts old {"Ing": %} flat dicts to Phase Format seamlessly
+                if isinstance(recipe_data, dict):
+                    recipe_items = [{"Phase": "A", "Ingredient": k, "%": v} for k, v in recipe_data.items()]
+                elif isinstance(recipe_data, list):
+                    recipe_items = recipe_data
+                else:
+                    recipe_items = []
+                
                 st.write("##")
                 with st.container(border=True):
                     st.markdown(f"#### ⚗️ {sel_f['fr_code']} - {sel_f['formula_name']}")
+                    
                     b_size = st.number_input("Target Batch Size (grams)", min_value=1.0, value=1000.0, step=100.0)
                     st.write("---")
                     
                     calc_data = []; stock_ok = True; total_cost = 0.0
-                    for ing, p in recipe_data.items():
+                    for row in recipe_items:
+                        ing = row['Ingredient']
+                        p = row['%']
+                        phase = row.get('Phase', 'A')
+                        
                         req_g = (p/100) * b_size
                         m = inventory[inventory['trade_name'] == ing]
                         if not m.empty:
@@ -545,12 +523,24 @@ if check_password():
                             if s_kg < (req_g/1000): stock_ok = False
                             cost = (req_g/1000)*p_kg
                             total_cost += cost
-                            calc_data.append({"Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "✅ Available" if s_kg >= (req_g/1000) else "❌ Shortage", "Est. Cost": f"${cost:.4f}", "req_kg": req_g/1000, "stock_kg": s_kg})
+                            calc_data.append({"Phase": phase, "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "✅ Available" if s_kg >= (req_g/1000) else "❌ Shortage", "Est. Cost": f"${cost:.4f}", "req_kg": req_g/1000, "stock_kg": s_kg})
                         else:
                             stock_ok = False
-                            calc_data.append({"Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "⚠️ Not in Vault", "Est. Cost": "$0.00", "req_kg": 0, "stock_kg": 0})
+                            calc_data.append({"Phase": phase, "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "⚠️ Not in Vault", "Est. Cost": "$0.00", "req_kg": 0, "stock_kg": 0})
                     
-                    st.dataframe(pd.DataFrame(calc_data)[['Material', 'Formula %', 'Needed (g)', 'Stock Status', 'Est. Cost']], use_container_width=True, hide_index=True)
+                    calc_df = pd.DataFrame(calc_data)
+                    if not calc_df.empty:
+                        calc_df = calc_df.sort_values(by="Phase")
+                    st.dataframe(calc_df[['Phase', 'Material', 'Formula %', 'Needed (g)', 'Stock Status', 'Est. Cost']], use_container_width=True, hide_index=True)
+                    
+                    # Display Manufacturing Procedure
+                    st.write("---")
+                    st.markdown("#### 📋 Manufacturing Procedure")
+                    proc_text = sel_f.get('procedure', 'No written procedure documented for this formula.')
+                    if pd.isna(proc_text) or str(proc_text).strip() == "":
+                        proc_text = "No written procedure documented for this formula."
+                    st.info(proc_text)
+                    st.write("---")
                     
                     col_cost, col_btn = st.columns([1, 1])
                     col_cost.metric("Projected Batch Cost", f"${total_cost:.2f}")
@@ -567,14 +557,14 @@ if check_password():
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
+                    # VERSIONING SYSTEM
                     st.divider()
                     c_act1, c_act2 = st.columns(2)
                     with c_act1:
                         with st.expander("🔄 Create New Edition (Version)"):
                             st.info("Locks this formula to the parent FR code and drops it into the Architect to draft a new edition (e.g., -2).")
                             if st.button("Load into Architect", use_container_width=True):
-                                df_data = [{"Ingredient": k, "%": v} for k, v in recipe_data.items()]
-                                st.session_state.builder = pd.DataFrame(df_data)
+                                st.session_state.builder = pd.DataFrame(recipe_items)
                                 
                                 match = re.search(r' V(\d+)$', sel_f['formula_name'])
                                 if match:
@@ -585,6 +575,7 @@ if check_password():
                                 
                                 st.session_state.draft_name = new_name
                                 st.session_state.base_fr_code = sel_f['fr_code']
+                                st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
                                 st.rerun()
                     with c_act2:
                         with st.expander("System Actions: Erase Formula"):
@@ -602,31 +593,59 @@ if check_password():
                     base_disp = st.session_state.base_fr_code.split('-')[0]
                     st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>🔗 LINKED PARENT CODE: {base_disp}</span>", unsafe_allow_html=True)
                     if st.button("❌ Cancel Edition & Start Fresh"):
-                        st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
+                        st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                         if "draft_name" in st.session_state: del st.session_state["draft_name"]
                         if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
+                        if "draft_procedure" in st.session_state: del st.session_state["draft_procedure"]
                         st.rerun()
                     st.write("")
                 
-                f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil")
-                if "builder" not in st.session_state: st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
+                f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil V2")
+                
+                if "builder" not in st.session_state: 
+                    st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
+                
                 ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
-                edit_df = st.data_editor(st.session_state.builder, num_rows="dynamic", use_container_width=True, column_config={"Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options)})
+                
+                st.markdown("<p style='font-size: 0.85rem; font-weight: 600;'>Recipe Phases</p>", unsafe_allow_html=True)
+                edit_df = st.data_editor(
+                    st.session_state.builder, 
+                    num_rows="dynamic", 
+                    use_container_width=True, 
+                    column_config={
+                        "Phase": st.column_config.SelectboxColumn("Phase", options=["A", "B", "C", "D", "E", "F"], required=True),
+                        "Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options, required=True)
+                    }
+                )
+                
+                st.markdown("<p style='font-size: 0.85rem; font-weight: 600;'>Manufacturing Procedure</p>", unsafe_allow_html=True)
+                procedure_text = st.text_area(
+                    "Step-by-step instructions", 
+                    value=st.session_state.get("draft_procedure", ""),
+                    placeholder="1. Heat Phase A to 75°C\n2. Slowly stir in Phase B...\n3. Cool below 40°C before adding Phase C.",
+                    height=150, label_visibility="collapsed"
+                )
             
             with c_metrics:
                 st.write("<div style='margin-top: 2.2rem;'></div>", unsafe_allow_html=True)
                 st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Live Cost Analysis (1 Kg Batch)</p>", unsafe_allow_html=True)
                 total_cost_kg = 0.0; live_data = []
                 for _, row in edit_df.iterrows():
-                    ing = row['Ingredient']; perc = row['%']
+                    ing = row.get('Ingredient')
+                    perc = row.get('%', 0.0)
+                    phase = row.get('Phase', 'A')
                     if ing and pd.notna(ing) and ing in inventory['trade_name'].values:
                         price = float(inventory[inventory['trade_name'] == ing]['price_per_kg'].values[0])
                         cost_contrib = (perc / 100.0) * price; total_cost_kg += cost_contrib
-                        live_data.append({"Material": ing, "RM Base Price": f"${price:,.2f}/Kg", "Cost Contrib.": f"${cost_contrib:,.2f}"})
-                if live_data: st.dataframe(pd.DataFrame(live_data), use_container_width=True, hide_index=True)
-                else: st.info("Select ingredients to see live costs.")
+                        live_data.append({"Phase": phase, "Material": ing, "RM Base Price": f"${price:,.2f}/Kg", "Cost Contrib.": f"${cost_contrib:,.2f}"})
+                
+                if live_data: 
+                    st.dataframe(pd.DataFrame(live_data).sort_values('Phase'), use_container_width=True, hide_index=True)
+                else: 
+                    st.info("Select ingredients to see live costs.")
+                    
                 st.metric("Total Formula Cost / Kg", f"${total_cost_kg:,.2f}")
-                total_perc = edit_df["%"].sum()
+                total_perc = edit_df["%"].sum() if "%" in edit_df.columns else 0.0
                 
                 if round(total_perc, 2) == 100.0:
                     st.success("✅ Formula is balanced (100%)")
@@ -642,11 +661,20 @@ if check_password():
                                 root_codes = formulas_df['fr_code'].str.extract(r'FR(\d{5})')[0].dropna().astype(int)
                                 next_id = root_codes.max() + 1 if not root_codes.empty else 1
                                 fr_c = f"FR{next_id:05d}"
-                                
-                        supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": dict(zip(edit_df["Ingredient"], edit_df["%"]))}).execute()
-                        st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
+                        
+                        recipe_json = edit_df.to_dict(orient='records')
+                        
+                        supabase.table("formulas").insert({
+                            "fr_code": fr_c, 
+                            "formula_name": f_name, 
+                            "recipe": recipe_json,
+                            "procedure": procedure_text
+                        }).execute()
+                        
+                        st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                         if "draft_name" in st.session_state: del st.session_state["draft_name"]
                         if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
+                        if "draft_procedure" in st.session_state: del st.session_state["draft_procedure"]
                         st.rerun()
                 else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
@@ -690,7 +718,18 @@ if check_password():
         if sel_form:
             n_only = sel_form.split("] ")[1]
             rec = formulas_df[formulas_df['formula_name'] == n_only].iloc[0]['recipe']
-            for ing, p in rec.items():
+            
+            # Compatibility parsing for old vs new formula formats
+            if isinstance(rec, dict):
+                rec_items = [{"Ingredient": k, "%": v} for k, v in rec.items()]
+            elif isinstance(rec, list):
+                rec_items = rec
+            else:
+                rec_items = []
+                
+            for row in rec_items:
+                ing = row['Ingredient']
+                p = row['%']
                 req_g = (p/100) * fill_wt
                 m = inventory[inventory['trade_name'] == ing]
                 if not m.empty:
