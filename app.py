@@ -192,7 +192,7 @@ if check_password():
                     next_pm = 1 if packaging.empty else int(packaging['id'].max()) + 1
                     supabase.table('packaging').insert({"pm_code": f"PM{next_pm:05d}", "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q}).execute(); st.rerun()
 
-    # --- 4. FINISHED PRODUCTS LIBRARY (CONNECTED TO COGS) ---
+    # --- 4. FINISHED PRODUCTS LIBRARY (FIXED COLD START) ---
     elif menu == "Finished Products":
         st.title("Finished Products")
         st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
@@ -246,14 +246,11 @@ if check_password():
             if not cogs_records_df.empty:
                 with st.form("add_fp", clear_on_submit=True):
                     c1, c2 = st.columns([2, 1])
-                    
-                    # Fetching from COGS
                     cogs_opts = [f"[{r['id']}] {r['product_name']}" for _, r in cogs_records_df.iterrows()]
                     sel_cogs = c1.selectbox("Select Target Product (From COGS Vault)", cogs_opts)
                     fp_q = c2.number_input("Bottles Produced (Qty)", min_value=1, value=10, step=1)
                     
                     if st.form_submit_button("Add to Stock"):
-                        # Extract data from the selected COGS profile
                         cogs_id = int(sel_cogs.split("]")[0].replace("[", ""))
                         matched_cogs = cogs_records_df[cogs_records_df['id'] == cogs_id].iloc[0]
                         
@@ -261,11 +258,9 @@ if check_password():
                         target_cogs = float(matched_cogs['total_cogs'])
                         target_retail = float(matched_cogs['target_retail'])
                         
-                        # Check if product already exists on the shelf
-                        existing_product = finished_goods[finished_goods['product_name'] == target_name]
-                        
-                        if not existing_product.empty:
-                            # Smart Restock: Add quantity and update to the latest prices
+                        # FIXED: Safe check for empty dataframe to prevent KeyError
+                        if not finished_goods.empty and target_name in finished_goods['product_name'].values:
+                            existing_product = finished_goods[finished_goods['product_name'] == target_name]
                             existing_id = int(existing_product.iloc[0]['id'])
                             new_qty = int(existing_product.iloc[0]['stock_quantity']) + fp_q
                             
