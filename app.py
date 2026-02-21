@@ -99,12 +99,11 @@ if check_password():
     cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
     sales_records_df = fetch_vault_data('sales_records', 'sale_date')
 
-    # --- 1. SALES & REVENUE (NEW CRM & TRACKER) ---
+    # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":
         st.title("Sales & Revenue Tracker")
-        st.markdown("<p style='color: #64748B;'>Monitor order volume, revenue targets, and automatically deduct sold units from vault stock.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>Monitor order volume, track pending receivables, and automatically deduct sold units from vault stock.</p>", unsafe_allow_html=True)
         
-        # Dashboard Processing
         if not sales_records_df.empty:
             sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'])
             sales_records_df['Year'] = sales_records_df['sale_date'].dt.year
@@ -122,37 +121,61 @@ if check_password():
             yr_units = yr_df['quantity'].sum()
             avg_margin = (yr_profit / yr_rev * 100) if yr_rev > 0 else 0.0
             
+            # Identify pending cash
+            pending_rev = yr_df[yr_df['status'] == 'Pending']['gross_revenue'].sum()
+            
             st.write("---")
-            k1, k2, k3, k4 = st.columns(4)
+            k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric(f"{selected_year} Gross Revenue", f"${yr_rev:,.2f}")
-            k2.metric("Net Profit", f"${yr_profit:,.2f}")
-            k3.metric("Avg. Profit Margin", f"{avg_margin:.1f}%")
-            k4.metric("Total Units Sold", f"{yr_units:,}")
+            k2.metric("Pending Receivables", f"${pending_rev:,.2f}", delta="-Uncollected" if pending_rev > 0 else None, delta_color="inverse")
+            k3.metric("Net Profit", f"${yr_profit:,.2f}")
+            k4.metric("Avg. Profit Margin", f"{avg_margin:.1f}%")
+            k5.metric("Total Units Sold", f"{yr_units:,}")
             
             # Target Progress Bar
             progress_pct = min(yr_rev / annual_target, 1.0) if annual_target > 0 else 0.0
             st.write(f"**Annual Target Progress:** {progress_pct*100:.1f}% (${yr_rev:,.0f} / ${annual_target:,.0f})")
             st.progress(progress_pct)
             
+            # Interactive Ledger
             st.write("---")
-            st.markdown("#### Transaction Ledger")
+            st.markdown("#### Transaction Ledger & Payment Tracking")
+            st.write("💡 *Update the 'Status' dropdown directly in the table to mark pending orders as Paid.*")
+            
             display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
             display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
-            st.dataframe(
-                display_sales[['sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel', 'status']], 
-                use_container_width=True, hide_index=True
-            )
+            
+            with st.container(border=True):
+                edited_sales = st.data_editor(
+                    display_sales[['id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel', 'status']], 
+                    use_container_width=True, 
+                    hide_index=True,
+                    disabled=['id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel'],
+                    column_config={
+                        "id": None, # Hides the database ID from view
+                        "gross_revenue": st.column_config.NumberColumn("Gross Rev", format="$%.2f"),
+                        "net_profit": st.column_config.NumberColumn("Net Profit", format="$%.2f"),
+                        "status": st.column_config.SelectboxColumn("Status", options=["Paid", "Pending", "Cancelled"], required=True)
+                    }
+                )
+                
+                if st.button("💾 Synchronize Ledger Status", type="primary"):
+                    for index, row in edited_sales.iterrows():
+                        orig = display_sales.loc[index]
+                        if row['status'] != orig['status']:
+                            supabase.table('sales_records').update({'status': row['status']}).eq('id', int(row['id'])).execute()
+                    st.success("Ledger payments synchronized!")
+                    st.rerun()
         else:
             st.info("No sales records imported or logged yet.")
 
         # Log New Sale Form
         st.write("---")
-        with st.expander("➕ Log New Sales Order (Deducts from Stock)", expanded=True):
+        with st.expander("➕ Log New Sales Order (Deducts from Stock)", expanded=False):
             if not finished_goods.empty:
                 with st.form("add_sale", clear_on_submit=True):
                     s1, s2, s3 = st.columns(3)
                     
-                    # Core info
                     fp_opts = finished_goods['product_name'].tolist()
                     sel_product = s1.selectbox("Finished Product Sold", fp_opts)
                     qty_sold = s2.number_input("Quantity Sold", min_value=1, value=1, step=1)
@@ -198,7 +221,7 @@ if check_password():
                             }).execute()
                             
                             st.success(f"Order logged! {qty_sold} units deducted from Finished Products.")
-                            time.sleep(1) # Brief pause for DB sync
+                            time.sleep(1)
                             st.rerun()
             else:
                 st.warning("⚠️ You must have products logged in the 'Finished Products' vault before you can process a sale.")
