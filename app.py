@@ -40,7 +40,7 @@ supabase = init_connection()
 
 # --- Robust Data Fetching (Auto-Retry Armor) ---
 def fetch_vault_data(table_name, sort_column=None):
-    for attempt in range(3): # Try 3 times before failing
+    for attempt in range(3): 
         try:
             resp = supabase.table(table_name).select("*").execute()
             df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
@@ -48,7 +48,7 @@ def fetch_vault_data(table_name, sort_column=None):
                 df = df.sort_values(sort_column)
             return df
         except Exception:
-            time.sleep(0.5) # Wait half a second and try again
+            time.sleep(0.5) 
     st.error(f"⚠️ Network timeout while accessing the {table_name} vault. Please refresh the page.")
     st.stop()
 
@@ -79,6 +79,7 @@ if check_password():
         except: st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
         st.write("##")
         menu = st.radio("System Menu", [
+            "Sales & Revenue",
             "Financial Overview", 
             "Raw Material Library", 
             "Packaging Library", 
@@ -96,9 +97,114 @@ if check_password():
     finished_goods = fetch_vault_data('finished_products', 'fp_code')
     formulas_df = fetch_vault_data('formulas')
     cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
+    sales_records_df = fetch_vault_data('sales_records', 'sale_date')
 
-    # --- 1. FINANCIAL OVERVIEW ---
-    if menu == "Financial Overview":
+    # --- 1. SALES & REVENUE (NEW CRM & TRACKER) ---
+    if menu == "Sales & Revenue":
+        st.title("Sales & Revenue Tracker")
+        st.markdown("<p style='color: #64748B;'>Monitor order volume, revenue targets, and automatically deduct sold units from vault stock.</p>", unsafe_allow_html=True)
+        
+        # Dashboard Processing
+        if not sales_records_df.empty:
+            sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'])
+            sales_records_df['Year'] = sales_records_df['sale_date'].dt.year
+            
+            years_available = sorted(sales_records_df['Year'].unique().tolist(), reverse=True)
+            
+            c_year, c_target = st.columns([1, 3])
+            selected_year = c_year.selectbox("Fiscal Year", years_available)
+            annual_target = c_target.number_input("Annual Revenue Target ($)", value=50000, step=5000)
+            
+            yr_df = sales_records_df[sales_records_df['Year'] == selected_year]
+            
+            yr_rev = yr_df['gross_revenue'].sum()
+            yr_profit = yr_df['net_profit'].sum()
+            yr_units = yr_df['quantity'].sum()
+            avg_margin = (yr_profit / yr_rev * 100) if yr_rev > 0 else 0.0
+            
+            st.write("---")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric(f"{selected_year} Gross Revenue", f"${yr_rev:,.2f}")
+            k2.metric("Net Profit", f"${yr_profit:,.2f}")
+            k3.metric("Avg. Profit Margin", f"{avg_margin:.1f}%")
+            k4.metric("Total Units Sold", f"{yr_units:,}")
+            
+            # Target Progress Bar
+            progress_pct = min(yr_rev / annual_target, 1.0) if annual_target > 0 else 0.0
+            st.write(f"**Annual Target Progress:** {progress_pct*100:.1f}% (${yr_rev:,.0f} / ${annual_target:,.0f})")
+            st.progress(progress_pct)
+            
+            st.write("---")
+            st.markdown("#### Transaction Ledger")
+            display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
+            display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
+            st.dataframe(
+                display_sales[['sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel', 'status']], 
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.info("No sales records imported or logged yet.")
+
+        # Log New Sale Form
+        st.write("---")
+        with st.expander("➕ Log New Sales Order (Deducts from Stock)", expanded=True):
+            if not finished_goods.empty:
+                with st.form("add_sale", clear_on_submit=True):
+                    s1, s2, s3 = st.columns(3)
+                    
+                    # Core info
+                    fp_opts = finished_goods['product_name'].tolist()
+                    sel_product = s1.selectbox("Finished Product Sold", fp_opts)
+                    qty_sold = s2.number_input("Quantity Sold", min_value=1, value=1, step=1)
+                    sale_date = s3.date_input("Date of Sale", value=datetime.today())
+                    
+                    c1, c2, c3 = st.columns(3)
+                    client = c1.text_input("Account / Client Name", placeholder="e.g., Ralph J. Ghosn")
+                    order_ref = c2.text_input("Order Ref. Number")
+                    channel = c3.selectbox("Channel", ["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"])
+                    
+                    c_price, c_status = st.columns(2)
+                    
+                    # Pull defaults
+                    fg_match = finished_goods[finished_goods['product_name'] == sel_product].iloc[0]
+                    default_price = float(fg_match['retail_price'])
+                    unit_cogs = float(fg_match['unit_cogs'])
+                    current_stock = int(fg_match['stock_quantity'])
+                    
+                    unit_price = c_price.number_input("Final Unit Price Charged ($)", value=default_price, min_value=0.0)
+                    status = c_status.selectbox("Payment Status", ["Paid", "Pending", "Cancelled"])
+                    
+                    if st.form_submit_button("Log Order & Deduct Stock", type="primary"):
+                        if current_stock < qty_sold:
+                            st.error(f"⚠️ Warning: You only have {current_stock} units of {sel_product} in stock. Sale aborted. Produce more first.")
+                        else:
+                            gross = qty_sold * unit_price
+                            total_cogs = qty_sold * unit_cogs
+                            net = gross - total_cogs
+                            gm = (net / gross) if gross > 0 else 0.0
+                            
+                            # 1. Update stock
+                            new_stock = current_stock - qty_sold
+                            supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_match['id'])).execute()
+                            
+                            # 2. Log sale
+                            supabase.table('sales_records').insert({
+                                "order_description": sel_product,
+                                "quantity": qty_sold, "unit_price": unit_price,
+                                "gross_revenue": gross, "cogs": total_cogs, "net_profit": net,
+                                "account": client, "order_ref_number": order_ref,
+                                "sale_date": sale_date.strftime('%Y-%m-%d'),
+                                "gm": gm, "channel": channel, "status": status
+                            }).execute()
+                            
+                            st.success(f"Order logged! {qty_sold} units deducted from Finished Products.")
+                            time.sleep(1) # Brief pause for DB sync
+                            st.rerun()
+            else:
+                st.warning("⚠️ You must have products logged in the 'Finished Products' vault before you can process a sale.")
+
+    # --- 2. FINANCIAL OVERVIEW ---
+    elif menu == "Financial Overview":
         st.title("Financial Overview")
         st.markdown("<p style='color: #64748B;'>Live tracking of physical assets, inventory valuation, and retail projections.</p>", unsafe_allow_html=True)
         st.write("##")
@@ -133,7 +239,7 @@ if check_password():
                 fg_chart = finished_goods.copy(); fg_chart['Retail Value ($)'] = fg_chart['retail_price'] * fg_chart['stock_quantity']
                 st.dataframe(fg_chart.sort_values(by="Retail Value ($)", ascending=False).head(5)[['product_name', 'Retail Value ($)']], use_container_width=True, hide_index=True)
 
-    # --- 2. RAW MATERIAL LIBRARY ---
+    # --- 3. RAW MATERIAL LIBRARY ---
     elif menu == "Raw Material Library":
         st.title("Raw Material Library")
         st.markdown("<p style='color: #64748B;'>Manage essential oils, carriers, and active ingredients.</p>", unsafe_allow_html=True)
@@ -168,7 +274,7 @@ if check_password():
                     next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
                     supabase.table('inventory').insert({"rm_code": f"RM{next_id:05d}", "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q}).execute(); st.rerun()
 
-    # --- 3. PACKAGING LIBRARY ---
+    # --- 4. PACKAGING LIBRARY ---
     elif menu == "Packaging Library":
         st.title("Packaging Library")
         st.markdown("<p style='color: #64748B;'>Track bottles, droppers, caps, and labels.</p>", unsafe_allow_html=True)
@@ -199,7 +305,7 @@ if check_password():
                     next_pm = 1 if packaging.empty else int(packaging['id'].max()) + 1
                     supabase.table('packaging').insert({"pm_code": f"PM{next_pm:05d}", "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q}).execute(); st.rerun()
 
-    # --- 4. FINISHED PRODUCTS LIBRARY ---
+    # --- 5. FINISHED PRODUCTS LIBRARY ---
     elif menu == "Finished Products":
         st.title("Finished Products")
         st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
@@ -276,7 +382,7 @@ if check_password():
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 5. FORMULA HUB ---
+    # --- 6. FORMULA HUB ---
     elif menu == "Formula Hub":
         st.title("The Formula Hub")
         st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
@@ -327,6 +433,7 @@ if check_password():
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
+                    # VERSIONING SYSTEM
                     st.divider()
                     c_act1, c_act2 = st.columns(2)
                     with c_act1:
@@ -410,7 +517,7 @@ if check_password():
                         st.rerun()
                 else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
-    # --- 6. COGS CALCULATOR ---
+    # --- 7. COGS CALCULATOR ---
     elif menu == "COGS Calculator":
         st.title("Cost of Goods Sold (COGS)")
         st.markdown("<p style='color: #64748B;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
@@ -569,7 +676,7 @@ if check_password():
         else:
             st.info("No COGS profiles saved in the vault.")
 
-    # --- 7. PRODUCTION LOGS ---
+    # --- 8. PRODUCTION LOGS ---
     elif menu == "Production Logs":
         st.title("Production Logs")
         st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records.</p>", unsafe_allow_html=True)
