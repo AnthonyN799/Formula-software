@@ -4,6 +4,7 @@ from datetime import datetime
 from supabase import create_client, Client
 from PIL import Image
 import re
+import time
 
 # --- 1. PAGE CONFIGURATION ---
 try:
@@ -36,6 +37,20 @@ def init_connection():
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 
 supabase = init_connection()
+
+# --- Robust Data Fetching (Auto-Retry Armor) ---
+def fetch_vault_data(table_name, sort_column=None):
+    for attempt in range(3): # Try 3 times before failing
+        try:
+            resp = supabase.table(table_name).select("*").execute()
+            df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+            if not df.empty and sort_column and sort_column in df.columns:
+                df = df.sort_values(sort_column)
+            return df
+        except Exception:
+            time.sleep(0.5) # Wait half a second and try again
+    st.error(f"⚠️ Network timeout while accessing the {table_name} vault. Please refresh the page.")
+    st.stop()
 
 # --- Authentication Logic ---
 def check_password():
@@ -75,21 +90,12 @@ if check_password():
         st.write("<br><br>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.rerun()
 
-    # --- Fetch Global Data ---
-    inv_resp = supabase.table('inventory').select("*").execute()
-    inventory = pd.DataFrame(inv_resp.data).sort_values('rm_code') if inv_resp.data else pd.DataFrame()
-    
-    pk_resp = supabase.table('packaging').select("*").execute()
-    packaging = pd.DataFrame(pk_resp.data).sort_values('pm_code') if pk_resp.data else pd.DataFrame()
-    
-    fp_resp = supabase.table('finished_products').select("*").execute()
-    finished_goods = pd.DataFrame(fp_resp.data).sort_values('fp_code') if fp_resp.data else pd.DataFrame()
-
-    formulas_resp = supabase.table('formulas').select('*').execute()
-    formulas_df = pd.DataFrame(formulas_resp.data) if formulas_resp.data else pd.DataFrame()
-    
-    cogs_resp = supabase.table('cogs_records').select('*').execute()
-    cogs_records_df = pd.DataFrame(cogs_resp.data).sort_values('product_name') if cogs_resp.data else pd.DataFrame()
+    # --- Fetch Global Data Securely ---
+    inventory = fetch_vault_data('inventory', 'rm_code')
+    packaging = fetch_vault_data('packaging', 'pm_code')
+    finished_goods = fetch_vault_data('finished_products', 'fp_code')
+    formulas_df = fetch_vault_data('formulas')
+    cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
 
     # --- 1. FINANCIAL OVERVIEW ---
     if menu == "Financial Overview":
@@ -270,7 +276,7 @@ if check_password():
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 5. FORMULA HUB (UPGRADED WITH STRICT LINEAGE VERSIONING) ---
+    # --- 5. FORMULA HUB ---
     elif menu == "Formula Hub":
         st.title("The Formula Hub")
         st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
@@ -321,7 +327,6 @@ if check_password():
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
-                    # VERSIONING SYSTEM
                     st.divider()
                     c_act1, c_act2 = st.columns(2)
                     with c_act1:
@@ -363,7 +368,7 @@ if check_password():
                         st.rerun()
                     st.write("")
                 
-                f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil V2")
+                f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil")
                 if "builder" not in st.session_state: st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
                 ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
                 edit_df = st.data_editor(st.session_state.builder, num_rows="dynamic", use_container_width=True, column_config={"Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options)})
@@ -386,8 +391,6 @@ if check_password():
                 if round(total_perc, 2) == 100.0:
                     st.success("✅ Formula is balanced (100%)")
                     if st.button("Commit Formula to Vault", type="primary", use_container_width=True) and f_name:
-                        
-                        # Apply smart suffix logic based on the parent FR code
                         if "base_fr_code" in st.session_state:
                             base_code = st.session_state.base_fr_code.split('-')[0]
                             existing_v_count = formulas_df[formulas_df['fr_code'].str.startswith(base_code)].shape[0]
@@ -401,8 +404,6 @@ if check_password():
                                 fr_c = f"FR{next_id:05d}"
                                 
                         supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": dict(zip(edit_df["Ingredient"], edit_df["%"]))}).execute()
-                        
-                        # Clear builder cache
                         st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
                         if "draft_name" in st.session_state: del st.session_state["draft_name"]
                         if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
