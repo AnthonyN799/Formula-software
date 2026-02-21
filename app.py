@@ -61,7 +61,7 @@ if check_password():
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
         st.write("##")
-        menu = st.radio("System Menu", ["Financial Overview", "Raw Material Library", "Packaging Library", "Formula Hub", "Production Logs"])
+        menu = st.radio("System Menu", ["Financial Overview", "Raw Material Library", "Packaging Library", "Formula Hub", "COGS Calculator", "Production Logs"])
         st.write("<br><br>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.rerun()
 
@@ -228,50 +228,122 @@ if check_password():
 
         st.write("---")
         
-        # NEW DUAL-PANEL ARCHITECT BUILDER
         with st.expander("⚙️ Architect New Formula", expanded=True):
             c_build, c_metrics = st.columns([3, 2])
-            
             with c_build:
                 f_name = st.text_input("Formula Moniker", placeholder="e.g., Actiflam Hair Growth Oil")
                 if "builder" not in st.session_state: st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
                 ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
                 edit_df = st.data_editor(st.session_state.builder, num_rows="dynamic", use_container_width=True, column_config={"Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options)})
-                
             with c_metrics:
                 st.write("<div style='margin-top: 2.2rem;'></div>", unsafe_allow_html=True)
                 st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Live Cost Analysis (1 Kg Batch)</p>", unsafe_allow_html=True)
-                
-                total_cost_kg = 0.0
-                live_data = []
+                total_cost_kg = 0.0; live_data = []
                 for _, row in edit_df.iterrows():
-                    ing = row['Ingredient']
-                    perc = row['%']
+                    ing = row['Ingredient']; perc = row['%']
                     if ing and pd.notna(ing) and ing in inventory['trade_name'].values:
                         price = float(inventory[inventory['trade_name'] == ing]['price_per_kg'].values[0])
-                        cost_contrib = (perc / 100.0) * price
-                        total_cost_kg += cost_contrib
+                        cost_contrib = (perc / 100.0) * price; total_cost_kg += cost_contrib
                         live_data.append({"Material": ing, "RM Base Price": f"${price:,.2f}/Kg", "Cost Contrib.": f"${cost_contrib:,.2f}"})
-                
-                if live_data:
-                    st.dataframe(pd.DataFrame(live_data), use_container_width=True, hide_index=True)
-                else:
-                    st.info("Select ingredients to see live costs.")
-                
+                if live_data: st.dataframe(pd.DataFrame(live_data), use_container_width=True, hide_index=True)
+                else: st.info("Select ingredients to see live costs.")
                 st.metric("Total Formula Cost / Kg", f"${total_cost_kg:,.2f}")
-                
                 total_perc = edit_df["%"].sum()
                 if total_perc == 100.0:
                     st.success("✅ Formula is balanced (100%)")
                     if st.button("Commit Formula", type="primary", use_container_width=True) and f_name:
                         fr_c = f"FR{len(formulas_df)+1:05d}"
                         supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": dict(zip(edit_df["Ingredient"], edit_df["%"]))}).execute()
-                        st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}]) # Reset the builder after saving
-                        st.rerun()
-                else:
-                    st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
+                        st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}]); st.rerun()
+                else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
-    # --- 5. PRODUCTION LOGS ---
+    # --- 5. COGS CALCULATOR (NEW) ---
+    elif menu == "COGS Calculator":
+        st.title("Cost of Goods Sold (COGS)")
+        st.markdown("<p style='color: #64748B;'>Calculate unit economics and profit margins for your finished products.</p>", unsafe_allow_html=True)
+        
+        f_resp = supabase.table('formulas').select('*').execute()
+        formulas_df = pd.DataFrame(f_resp.data) if f_resp.data else pd.DataFrame()
+
+        with st.container(border=True):
+            st.markdown("#### Step 1: Physical Product Specs")
+            c1, c2, c3 = st.columns(3)
+            
+            # 1. Select Formula
+            if not formulas_df.empty:
+                f_opts = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in formulas_df.iterrows()]
+                sel_form = c1.selectbox("Base Formula", f_opts)
+            else:
+                sel_form = None
+                c1.warning("No formulas in vault.")
+                
+            # 2. Fill Weight
+            fill_wt = c2.number_input("Fill Weight per Unit (grams)", min_value=1.0, value=30.0, step=5.0)
+            
+            # 3. Select Primary Packaging
+            if not packaging.empty:
+                p_opts = [f"[{r['pm_code']}] {r['material_name']}" for _, r in packaging.iterrows()]
+                p_opts.insert(0, "None / Custom")
+                sel_pack = c3.selectbox("Primary Packaging", p_opts)
+            else:
+                sel_pack = "None / Custom"
+                c3.warning("No packaging in vault.")
+
+        with st.container(border=True):
+            st.markdown("#### Step 2: Component & Variable Costs (per unit)")
+            cm1, cm2, cm3, cm4 = st.columns(4)
+            cost_mfg = cm1.number_input("Labor / Mfg ($)", min_value=0.0, value=0.10, step=0.05)
+            cost_lbl = cm2.number_input("Label Cost ($)", min_value=0.0, value=0.05, step=0.05)
+            cost_sec = cm3.number_input("Secondary Box ($)", min_value=0.0, value=0.00, step=0.05)
+            cost_ter = cm4.number_input("Tertiary/Carton ($)", min_value=0.0, value=0.00, step=0.05, help="Cost of master carton divided per unit.")
+
+        st.write("##")
+
+        # --- Math Engine ---
+        bulk_cost = 0.0
+        if sel_form:
+            n_only = sel_form.split("] ")[1]
+            rec = formulas_df[formulas_df['formula_name'] == n_only].iloc[0]['recipe']
+            for ing, p in rec.items():
+                req_g = (p/100) * fill_wt
+                m = inventory[inventory['trade_name'] == ing]
+                if not m.empty:
+                    p_kg = float(m['price_per_kg'].values[0])
+                    bulk_cost += (req_g/1000) * p_kg
+
+        pack_cost = 0.0
+        if sel_pack != "None / Custom":
+            p_only = sel_pack.split("] ")[1]
+            pack_cost = float(packaging[packaging['material_name'] == p_only].iloc[0]['cost_per_unit'])
+
+        total_cogs = bulk_cost + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
+
+        # --- Financial Results ---
+        st.markdown("#### Cost Breakdown & Profit Margin")
+        r1, r2 = st.columns([2, 1])
+        
+        with r1:
+            st.dataframe(pd.DataFrame([
+                {"Component": "Formula (Bulk Oil)", "Cost per Unit": f"${bulk_cost:.4f}"},
+                {"Component": "Primary Bottle/Dropper", "Cost per Unit": f"${pack_cost:.4f}"},
+                {"Component": "Labeling", "Cost per Unit": f"${cost_lbl:.4f}"},
+                {"Component": "Secondary Packaging", "Cost per Unit": f"${cost_sec:.4f}"},
+                {"Component": "Tertiary Packaging", "Cost per Unit": f"${cost_ter:.4f}"},
+                {"Component": "Labor / Mfg Overhead", "Cost per Unit": f"${cost_mfg:.4f}"}
+            ]), use_container_width=True, hide_index=True)
+
+        with r2:
+            with st.container(border=True):
+                st.metric("Total COGS per Unit", f"${total_cogs:.2f}")
+                target_retail = st.number_input("Target Retail Price ($)", min_value=0.0, value=total_cogs * 4 if total_cogs > 0 else 0.0, step=1.0)
+                
+                if target_retail > 0:
+                    gross_profit = target_retail - total_cogs
+                    margin_pct = (gross_profit / target_retail) * 100
+                    st.write("---")
+                    st.metric("Gross Profit", f"${gross_profit:.2f}", f"{margin_pct:.1f}% Margin")
+
+    # --- 6. PRODUCTION LOGS ---
     elif menu == "Production Logs":
         st.title("Production Logs")
         st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records.</p>", unsafe_allow_html=True)
