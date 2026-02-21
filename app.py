@@ -48,19 +48,19 @@ if check_password():
             total_value = (inventory['price_per_kg'] * inventory['quantity_kg']).sum()
             st.metric("Total Raw Materials Inventory Value", f"${total_value:,.2f}")
             
-            st.write("💡 *Check the box on the left to inspect or delete a material.*")
+            st.write("💡 *Click the checkbox on the left of any row to inspect or delete it.*")
             
             # THE INTERACTIVE TABLE
             display_inv = inventory.copy()
             display_inv['Cost/g ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format)
             
-            # Using data_editor with a selection column
+            # FIXED: "single-row" with a dash
             selected_rows = st.dataframe(
                 display_inv[['rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']],
                 use_container_width=True,
                 hide_index=True,
-                on_select="rerun", # Forces a refresh when you click a row
-                selection_mode="single_row"
+                on_select="rerun",
+                selection_mode="single-row" 
             )
             
             # Capture the selected row index
@@ -122,28 +122,38 @@ if check_password():
         packaging = pd.DataFrame(pk_resp.data).sort_values('pm_code') if pk_resp.data else pd.DataFrame()
         
         if not packaging.empty:
-            st.write("💡 *Select a row to manage packaging stock.*")
+            st.write("💡 *Click the checkbox on the left of any row to inspect or delete it.*")
+            
+            # FIXED: "single-row" with a dash
             pk_select = st.dataframe(
                 packaging[['pm_code', 'material_name', 'supplier', 'cost_per_unit', 'remaining_quantity']],
-                use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single_row"
+                use_container_width=True, 
+                hide_index=True, 
+                on_select="rerun", 
+                selection_mode="single-row"
             )
             
             if pk_select.selection.rows:
                 p_idx = pk_select.selection.rows[0]
                 p_mat = packaging.iloc[p_idx]
+                
+                st.divider()
+                st.subheader(f"🔍 Inspecting: {p_mat['material_name']}")
+                
                 with st.container(border=True):
-                    st.write(f"**{p_mat['pm_code']} - {p_mat['material_name']}**")
+                    st.write(f"**Code:** {p_mat['pm_code']} | **Supplier:** {p_mat['supplier']}")
                     with st.expander("🗑️ Delete Packaging"):
                         p_pass = st.text_input("Confirm with Passcode", type="password", key="del_pkg_p")
                         if st.button("Delete Item", type="primary"):
                             if p_pass == "lab2026":
                                 supabase.table('packaging').delete().eq('id', p_mat['id']).execute()
                                 st.rerun()
+                            else:
+                                st.error("Incorrect passcode.")
         
         st.divider()
         st.subheader("➕ Add New Packaging Item")
-        # ... [Add Packaging Form remains the same] ...
-        with st.form("add_packaging"):
+        with st.form("add_packaging", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
                 p_n = st.text_input("Material Name")
@@ -151,7 +161,7 @@ if check_password():
             with c2:
                 p_c = st.number_input("Cost per Unit ($)", min_value=0.0)
                 p_q = st.number_input("Initial Qty", min_value=0.0)
-            if st.form_submit_button("Save Packaging"):
+            if st.form_submit_button("Save Packaging") and p_n != "":
                 n_pm_id = 1 if packaging.empty else int(packaging['id'].max()) + 1
                 pm_c = f"PM{n_pm_id:05d}"
                 supabase.table('packaging').insert({"pm_code": pm_c, "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q}).execute()
@@ -160,8 +170,61 @@ if check_password():
     # --- 3. FORMULA HUB ---
     elif menu == "Formula Hub":
         st.header("🧪 The Formula Hub")
-        # (Your Formula Builder and Batch Production logic remains fully active here)
-        # ... [Formula Hub Logic] ...
+        inv_resp = supabase.table('inventory').select("*").execute()
+        inventory = pd.DataFrame(inv_resp.data) if inv_resp.data else pd.DataFrame()
+        f_resp = supabase.table('formulas').select('*').execute()
+        formulas_df = pd.DataFrame(f_resp.data) if f_resp.data else pd.DataFrame()
+
+        with st.expander("Build New Formula"):
+            f_name = st.text_input("Formula Name")
+            if "builder" not in st.session_state: st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
+            edit_df = st.data_editor(st.session_state.builder, num_rows="dynamic", use_container_width=True, 
+                                     column_config={"Ingredient": st.column_config.SelectboxColumn("Ingredient", options=inventory['trade_name'].tolist())})
+            
+            if st.button("Save Formula") and f_name and edit_df["%"].sum() == 100.0:
+                fr_c = f"FR{len(formulas_df)+1:05d}"
+                supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": dict(zip(edit_df["Ingredient"], edit_df["%"]))}).execute()
+                st.rerun()
+
+        if not formulas_df.empty:
+            st.divider()
+            st.subheader("⚗️ Batch Production")
+            f_options = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in formulas_df.iterrows()]
+            sel_f = st.selectbox("Select Formula", f_options)
+            b_size = st.number_input("Batch Size (g)", min_value=1, value=1000)
+            
+            name_only = sel_f.split("] ")[1]
+            code_only = sel_f.split("]")[0].replace("[", "")
+            recipe_data = formulas_df[formulas_df['formula_name'] == name_only].iloc[0]['recipe']
+            
+            calc_data = []; stock_ok = True
+            for ing, p in recipe_data.items():
+                req_g = (p/100) * b_size
+                m = inventory[inventory['trade_name'] == ing]
+                s_kg = float(m['quantity_kg'].values[0]); p_kg = float(m['price_per_kg'].values[0])
+                if s_kg < (req_g/1000): stock_ok = False
+                calc_data.append({
+                    "RM": m['rm_code'].values[0], "Ingredient": ing, "Needed (g)": f"{req_g:.2f}g", 
+                    "Stock (Kg)": f"{s_kg:.4f}Kg", "Status": "✅" if s_kg >= (req_g/1000) else "❌", 
+                    "cost": (req_g/1000)*p_kg, "req_kg": req_g/1000, "stock_kg": s_kg
+                })
+            
+            st.table(pd.DataFrame(calc_data)[['RM', 'Ingredient', 'Needed (g)', 'Stock (Kg)', 'Status']])
+            st.info(f"**Total Batch Cost: ${sum([d['cost'] for d in calc_data]):.2f}**")
+
+            if st.button("🚀 Produce Batch", type="primary", use_container_width=True):
+                if stock_ok:
+                    l_r = supabase.table('production_records').select("id").order("id", desc=True).limit(1).execute()
+                    n_id = 1 if not l_r.data else l_r.data[0]['id'] + 1
+                    b_no, l_no = f"B-{n_id:05d}", f"LOT-{datetime.now().strftime('%Y%m%d')}-{n_id:02d}"
+                    for d in calc_data:
+                        supabase.table('inventory').update({'quantity_kg': d['stock_kg'] - d['req_kg']}).eq('trade_name', d['Ingredient']).execute()
+                    supabase.table('production_records').insert({
+                        "fr_code": code_only, "formula_name": name_only, "batch_number": b_no, 
+                        "lot_number": l_no, "batch_size_g": b_size, "total_cost": sum([d['cost'] for d in calc_data])
+                    }).execute()
+                    st.balloons(); st.rerun()
+                else: st.error("Shortage detected.")
 
     # --- 4. PRODUCTION LOGS ---
     elif menu == "Production Logs":
@@ -171,3 +234,5 @@ if check_password():
             df = pd.DataFrame(logs.data)
             df['Date'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
             st.dataframe(df[['Date', 'batch_number', 'lot_number', 'formula_name', 'batch_size_g', 'total_cost']], use_container_width=True, hide_index=True)
+        else:
+            st.info("No records found.")
