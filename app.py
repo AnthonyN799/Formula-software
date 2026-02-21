@@ -53,30 +53,26 @@ def fetch_vault_data(table_name, sort_column=None):
     st.error(f"⚠️ Network timeout while accessing the {table_name} vault. Please refresh the page.")
     st.stop()
 
-# --- PDF Generation Engine ---
+# --- PDF Generation Engines ---
 def generate_order_pdf(order_ref, items_df, client_name, date_str):
     pdf = FPDF()
     pdf.add_page()
-    
     pdf.set_font("Arial", "B", 18)
     pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
     pdf.set_font("Arial", "", 12)
     pdf.cell(0, 8, "Official Order Summary", ln=True, align="C")
     pdf.ln(10)
-    
     pdf.set_font("Arial", "B", 11)
     pdf.cell(100, 8, f"Billed To: {client_name}")
     pdf.cell(0, 8, f"Date: {date_str}", ln=True, align="R")
     pdf.cell(0, 8, f"Order Ref: {order_ref}", ln=True, align="R")
     pdf.ln(5)
-    
     pdf.set_font("Arial", "B", 10)
     pdf.cell(90, 8, "Product Description", border=1)
     pdf.cell(25, 8, "Qty", border=1, align="C")
     pdf.cell(35, 8, "Unit Price", border=1, align="R")
     pdf.cell(40, 8, "Line Total", border=1, align="R")
     pdf.ln()
-    
     pdf.set_font("Arial", "", 10)
     grand_total = 0.0
     for _, row in items_df.iterrows():
@@ -85,16 +81,82 @@ def generate_order_pdf(order_ref, items_df, client_name, date_str):
         price = float(row['unit_price'])
         total = float(row['gross_revenue'])
         grand_total += total
-        
         pdf.cell(90, 8, desc, border=1)
         pdf.cell(25, 8, qty, border=1, align="C")
         pdf.cell(35, 8, f"${price:,.2f}", border=1, align="R")
         pdf.cell(40, 8, f"${total:,.2f}", border=1, align="R")
         pdf.ln()
-        
     pdf.set_font("Arial", "B", 10)
     pdf.cell(150, 8, "Grand Total", border=1, align="R")
     pdf.cell(40, 8, f"${grand_total:,.2f}", border=1, align="R")
+    return pdf.output(dest="S").encode("latin-1")
+
+def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed_assets, ap, debt, total_assets, total_liab, equity):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, "Balance Sheet", ln=True, align="C")
+    pdf.set_font("Arial", "I", 10)
+    pdf.cell(0, 6, f"As of {date_str}", ln=True, align="C")
+    pdf.ln(10)
+    
+    # ASSETS
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "ASSETS", ln=True, border="B")
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 6, "Current Assets", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(140, 6, "Cash & Equivalents:")
+    pdf.cell(0, 6, f"${cash:,.2f}", ln=True, align="R")
+    pdf.cell(140, 6, "Accounts Receivable:")
+    pdf.cell(0, 6, f"${ar:,.2f}", ln=True, align="R")
+    pdf.cell(140, 6, "Inventory (Raw Materials):")
+    pdf.cell(0, 6, f"${inv_rm:,.2f}", ln=True, align="R")
+    pdf.cell(140, 6, "Inventory (Packaging):")
+    pdf.cell(0, 6, f"${inv_pm:,.2f}", ln=True, align="R")
+    pdf.cell(140, 6, "Inventory (Finished Goods):")
+    pdf.cell(0, 6, f"${inv_fg:,.2f}", ln=True, align="R")
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 6, "Fixed Assets", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(140, 6, "Property, Plant & Equipment:")
+    pdf.cell(0, 6, f"${fixed_assets:,.2f}", ln=True, align="R")
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(140, 8, "TOTAL ASSETS:")
+    pdf.cell(0, 8, f"${total_assets:,.2f}", ln=True, align="R")
+    pdf.ln(10)
+    
+    # LIABILITIES
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "LIABILITIES & EQUITY", ln=True, border="B")
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 6, "Liabilities", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(140, 6, "Accounts Payable (Unpaid Bills):")
+    pdf.cell(0, 6, f"${ap:,.2f}", ln=True, align="R")
+    pdf.cell(140, 6, "Short/Long Term Debt:")
+    pdf.cell(0, 6, f"${debt:,.2f}", ln=True, align="R")
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(140, 6, "Total Liabilities:")
+    pdf.cell(0, 6, f"${total_liab:,.2f}", ln=True, align="R")
+    pdf.ln(4)
+    
+    # EQUITY
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 6, "Owner's Equity", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(140, 6, "Total Equity (Assets - Liabilities):")
+    pdf.cell(0, 6, f"${equity:,.2f}", ln=True, align="R")
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(140, 8, "TOTAL LIABILITIES & EQUITY:")
+    pdf.cell(0, 8, f"${(total_liab + equity):,.2f}", ln=True, align="R")
     
     return pdf.output(dest="S").encode("latin-1")
 
@@ -127,6 +189,7 @@ if check_password():
         menu = st.radio("System Menu", [
             "Sales & Revenue",
             "Financial Overview", 
+            "Balance Sheet",
             "Raw Material Library", 
             "Packaging Library", 
             "Finished Products", 
@@ -181,7 +244,6 @@ if check_password():
             
             st.write("---")
             st.markdown("#### Transaction Ledger & Order Management")
-            st.write("💡 *Update the 'Status' dropdown directly. Check the 🔍 box to inspect the full order, download the PDF invoice, or reverse it.*")
             
             display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
             display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
@@ -234,7 +296,6 @@ if check_password():
                         st.download_button(label="📄 Download PDF Order Summary", data=pdf_bytes, file_name=f"TherapeuticOils_Order_{ref_num}.pdf", mime="application/pdf", use_container_width=True)
                     with col_rev:
                         with st.expander("⚠️ System Actions: Reverse Line Item"):
-                            st.warning(f"This will erase **this specific line item** ({sale_item['order_description']}) and return **{sale_item['quantity']} units** back to the vault.")
                             rev_pass = st.text_input("Authorization Passcode", type="password", key=f"rev_{sel_id}")
                             if st.button("Reverse Sale & Restore Stock", type="primary"):
                                 if rev_pass == "lab2026":
@@ -279,7 +340,7 @@ if check_password():
                     
                     if st.form_submit_button("Log Order & Deduct Stock", type="primary"):
                         if current_stock < qty_sold:
-                            st.error(f"⚠️ Warning: You only have {current_stock} units of {sel_product} in stock. Sale aborted. Produce more first.")
+                            st.error(f"⚠️ Warning: You only have {current_stock} units of {sel_product} in stock. Sale aborted.")
                         else:
                             gross = qty_sold * unit_price
                             total_cogs = qty_sold * unit_cogs
@@ -335,7 +396,78 @@ if check_password():
                 fg_chart = finished_goods.copy(); fg_chart['Retail Value ($)'] = fg_chart['retail_price'] * fg_chart['stock_quantity']
                 st.dataframe(fg_chart.sort_values(by="Retail Value ($)", ascending=False).head(5)[['product_name', 'Retail Value ($)']], use_container_width=True, hide_index=True)
 
-    # --- 3. RAW MATERIAL LIBRARY ---
+    # --- 3. BALANCE SHEET GENERATOR ---
+    elif menu == "Balance Sheet":
+        st.title("Balance Sheet Generator")
+        st.markdown("<p style='color: #64748B;'>Generate a professional financial statement summarizing assets, liabilities, and owner's equity.</p>", unsafe_allow_html=True)
+        
+        # Auto-calculate known assets
+        rm_total = (inventory['price_per_kg'] * inventory['quantity_kg']).sum() if not inventory.empty else 0.0
+        pm_total = (packaging['cost_per_unit'] * packaging['remaining_quantity']).sum() if not packaging.empty else 0.0
+        fp_cogs_total = (finished_goods['unit_cogs'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
+        
+        ar_total = 0.0
+        if not sales_records_df.empty:
+            ar_total = sales_records_df[sales_records_df['status'] == 'Pending']['gross_revenue'].sum()
+            
+        with st.form("balance_sheet_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### ASSETS")
+                st.info("💡 *Inventory and Accounts Receivable are pulled live from your database.*")
+                cash = st.number_input("Cash in Bank ($)", min_value=0.0, value=0.0, step=100.0)
+                st.write(f"**Accounts Receivable (Pending Sales):** ${ar_total:,.2f}")
+                st.write(f"**Inventory (Raw Materials):** ${rm_total:,.2f}")
+                st.write(f"**Inventory (Packaging):** ${pm_total:,.2f}")
+                st.write(f"**Inventory (Finished Goods COGS):** ${fp_cogs_total:,.2f}")
+                
+                st.write("---")
+                st.markdown("**Fixed Assets**")
+                fixed_assets = st.number_input("Property & Equipment Value ($)", min_value=0.0, value=0.0, step=100.0)
+                
+            with col2:
+                st.markdown("#### LIABILITIES")
+                st.info("💡 *Enter any outstanding debts or unpaid invoices here.*")
+                accounts_payable = st.number_input("Accounts Payable (Unpaid Bills) ($)", min_value=0.0, value=0.0, step=100.0)
+                debt = st.number_input("Short/Long Term Debt ($)", min_value=0.0, value=0.0, step=100.0)
+                
+            st.write("---")
+            submit_bs = st.form_submit_button("Calculate & Generate Balance Sheet", type="primary", use_container_width=True)
+            
+        if submit_bs:
+            total_assets = cash + ar_total + rm_total + pm_total + fp_cogs_total + fixed_assets
+            total_liabilities = accounts_payable + debt
+            owner_equity = total_assets - total_liabilities
+            
+            st.write("##")
+            st.markdown("### Snapshot Results")
+            r1, r2, r3 = st.columns(3)
+            r1.metric("Total Assets", f"${total_assets:,.2f}")
+            r2.metric("Total Liabilities", f"${total_liabilities:,.2f}")
+            r3.metric("Owner's Equity", f"${owner_equity:,.2f}")
+            
+            if owner_equity == (total_assets - total_liabilities):
+                st.success("✅ The Balance Sheet is perfectly balanced (Assets = Liabilities + Equity).")
+                
+                # Generate PDF
+                date_str = datetime.today().strftime('%B %d, %Y')
+                pdf_bytes = generate_balance_sheet_pdf(
+                    date_str, cash, ar_total, rm_total, pm_total, fp_cogs_total, 
+                    fixed_assets, accounts_payable, debt, total_assets, total_liabilities, owner_equity
+                )
+                
+                st.download_button(
+                    label="📄 Download Official PDF Balance Sheet",
+                    data=pdf_bytes,
+                    file_name=f"TherapeuticOils_BalanceSheet_{datetime.today().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            else:
+                st.error("Mathematical error in calculation.")
+
+    # --- 4. RAW MATERIAL LIBRARY ---
     elif menu == "Raw Material Library":
         st.title("Raw Material Library")
         st.markdown("<p style='color: #64748B;'>Manage essential oils, carriers, and active ingredients.</p>", unsafe_allow_html=True)
@@ -370,7 +502,7 @@ if check_password():
                     next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
                     supabase.table('inventory').insert({"rm_code": f"RM{next_id:05d}", "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q}).execute(); st.rerun()
 
-    # --- 4. PACKAGING LIBRARY ---
+    # --- 5. PACKAGING LIBRARY ---
     elif menu == "Packaging Library":
         st.title("Packaging Library")
         st.markdown("<p style='color: #64748B;'>Track bottles, droppers, caps, and labels.</p>", unsafe_allow_html=True)
@@ -401,7 +533,7 @@ if check_password():
                     next_pm = 1 if packaging.empty else int(packaging['id'].max()) + 1
                     supabase.table('packaging').insert({"pm_code": f"PM{next_pm:05d}", "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q}).execute(); st.rerun()
 
-    # --- 5. FINISHED PRODUCTS LIBRARY ---
+    # --- 6. FINISHED PRODUCTS LIBRARY ---
     elif menu == "Finished Products":
         st.title("Finished Products")
         st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
@@ -478,16 +610,13 @@ if check_password():
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 6. FORMULA HUB (UPGRADED WITH GROUPING AND EDITING) ---
+    # --- 7. FORMULA HUB ---
     elif menu == "Formula Hub":
         st.title("The Formula Hub")
         st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
         
         if not formulas_df.empty:
-            # Grouping Engine: Extract base formula code (e.g., FR00001 from FR00001-2)
             formulas_df['base_code'] = formulas_df['fr_code'].apply(lambda x: str(x).split('-')[0])
-            
-            # Create a clean summary list of just the formula families
             summary_df = formulas_df.sort_values(by='fr_code').drop_duplicates(subset=['base_code'], keep='first').copy()
             summary_df['Family Name'] = summary_df['formula_name'].apply(lambda x: re.sub(r' V\d+$', '', str(x)))
             
@@ -500,7 +629,6 @@ if check_password():
                 
                 st.write("##")
                 with st.container(border=True):
-                    # Edition Dropdown Selector
                     if len(family_editions) > 1:
                         edition_opts = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in family_editions.iterrows()]
                         sel_edition_str = st.selectbox("📌 Select Specific Edition:", edition_opts)
@@ -512,7 +640,6 @@ if check_password():
                         
                     recipe_data = sel_f['recipe']
                     
-                    # Backward Compatibility Engine
                     if isinstance(recipe_data, dict):
                         recipe_items = [{"Phase": "A", "Ingredient": k, "%": v} for k, v in recipe_data.items()]
                     elif isinstance(recipe_data, list):
@@ -567,7 +694,6 @@ if check_password():
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
-                    # VERSIONING & EDITING SYSTEM
                     st.divider()
                     c_act1, c_act2, c_act3 = st.columns(3)
                     with c_act1:
@@ -706,14 +832,13 @@ if check_password():
                                 "recipe": recipe_json, "procedure": procedure_text
                             }).execute()
                             
-                        # Clear builder
                         st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                         for key in ["draft_name", "base_fr_code", "draft_procedure", "edit_formula_id", "edit_fr_code"]:
                             if key in st.session_state: del st.session_state[key]
                         st.rerun()
                 else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
-    # --- 7. COGS CALCULATOR ---
+    # --- 8. COGS CALCULATOR ---
     elif menu == "COGS Calculator":
         st.title("Cost of Goods Sold (COGS)")
         st.markdown("<p style='color: #64748B;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
@@ -747,7 +872,6 @@ if check_password():
 
         st.write("##")
 
-        # --- Math Engine ---
         bulk_cost = 0.0
         n_only = ""
         if sel_form:
@@ -777,7 +901,6 @@ if check_password():
 
         total_cogs = bulk_cost + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
 
-        # --- Financial Results ---
         st.markdown("#### Cost Breakdown & Profit Margin")
         r1, r2 = st.columns([2, 1])
         
@@ -803,7 +926,6 @@ if check_password():
                     st.write("---")
                     st.metric("Gross Profit", f"${gross_profit:.2f}", f"{margin_pct:.1f}% Margin")
 
-        # --- Profile Save Section ---
         st.write("##")
         with st.container(border=True):
             st.markdown("#### 💾 Save COGS Configuration")
@@ -824,15 +946,12 @@ if check_password():
                 else:
                     st.error("Please enter a Product Name before saving.")
 
-        # --- Saved COGS Profiles Vault ---
         st.write("---")
         st.markdown("#### 📂 Saved COGS Profiles")
         if not cogs_records_df.empty:
             display_cogs = cogs_records_df.copy()
             display_cogs['Date'] = pd.to_datetime(display_cogs['created_at']).dt.strftime('%Y-%m-%d')
             display_cogs.insert(0, '🔍', False)
-            
-            st.write("💡 *Edit the 'product_name' or 'target_retail' directly in the table. Margins auto-update when saving.*")
             
             with st.container(border=True):
                 edited_cogs = st.data_editor(
@@ -855,9 +974,7 @@ if check_password():
                             new_margin = ((new_retail - new_cogs) / new_retail * 100) if new_retail > 0 else 0.0
                             
                             supabase.table('cogs_records').update({
-                                "product_name": row['product_name'],
-                                "target_retail": new_retail,
-                                "gross_margin_pct": new_margin
+                                "product_name": row['product_name'], "target_retail": new_retail, "gross_margin_pct": new_margin
                             }).eq('id', int(orig['id'])).execute()
                     st.success("COGS profiles synced!")
                     st.rerun()
@@ -875,14 +992,13 @@ if check_password():
                         del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
                         if st.button("Erase COGS Profile"):
                             if del_cogs_pass == "lab2026":
-                                supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute()
-                                st.rerun()
+                                supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); st.rerun()
                             else:
                                 st.error("Incorrect passcode.")
         else:
             st.info("No COGS profiles saved in the vault.")
 
-    # --- 8. PRODUCTION LOGS ---
+    # --- 9. PRODUCTION LOGS ---
     elif menu == "Production Logs":
         st.title("Production Logs")
         st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records.</p>", unsafe_allow_html=True)
