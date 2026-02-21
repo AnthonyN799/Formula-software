@@ -153,7 +153,6 @@ if check_password():
         if not sales_records_df.empty:
             sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'])
             sales_records_df['Year'] = sales_records_df['sale_date'].dt.year
-            
             years_available = sorted(sales_records_df['Year'].unique().tolist(), reverse=True)
             
             c_year, c_target = st.columns([1, 3])
@@ -166,7 +165,6 @@ if check_password():
             yr_profit = yr_df['net_profit'].sum()
             yr_units = yr_df['quantity'].sum()
             avg_margin = (yr_profit / yr_rev * 100) if yr_rev > 0 else 0.0
-            
             pending_rev = yr_df[yr_df['status'] == 'Pending']['gross_revenue'].sum()
             
             st.write("---")
@@ -192,8 +190,7 @@ if check_password():
             with st.container(border=True):
                 edited_sales = st.data_editor(
                     display_sales[['🔍', 'id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel', 'status']], 
-                    use_container_width=True, 
-                    hide_index=True,
+                    use_container_width=True, hide_index=True,
                     disabled=['id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel'],
                     column_config={
                         "id": None, 
@@ -481,48 +478,64 @@ if check_password():
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 6. FORMULA HUB (UPGRADED WITH PHASES & PROCEDURE) ---
+    # --- 6. FORMULA HUB (UPGRADED WITH GROUPING AND EDITING) ---
     elif menu == "Formula Hub":
         st.title("The Formula Hub")
         st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
         
         if not formulas_df.empty:
-            st.write("💡 *Click on any formula row below to inspect its recipe and execute a production batch.*")
-            f_select = st.dataframe(formulas_df[['fr_code', 'formula_name']], use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
+            # Grouping Engine: Extract base formula code (e.g., FR00001 from FR00001-2)
+            formulas_df['base_code'] = formulas_df['fr_code'].apply(lambda x: str(x).split('-')[0])
+            
+            # Create a clean summary list of just the formula families
+            summary_df = formulas_df.sort_values(by='fr_code').drop_duplicates(subset=['base_code'], keep='first').copy()
+            summary_df['Family Name'] = summary_df['formula_name'].apply(lambda x: re.sub(r' V\d+$', '', str(x)))
+            
+            st.write("💡 *Select a Formula Family below to inspect its editions and execute production.*")
+            f_select = st.dataframe(summary_df[['base_code', 'Family Name']], use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
 
             if f_select.selection.rows:
-                f_idx = f_select.selection.rows[0]
-                sel_f = formulas_df.iloc[f_idx]
-                recipe_data = sel_f['recipe']
-                
-                # Backward Compatibility Engine: Converts old {"Ing": %} flat dicts to Phase Format seamlessly
-                if isinstance(recipe_data, dict):
-                    recipe_items = [{"Phase": "A", "Ingredient": k, "%": v} for k, v in recipe_data.items()]
-                elif isinstance(recipe_data, list):
-                    recipe_items = recipe_data
-                else:
-                    recipe_items = []
+                sel_base = summary_df.iloc[f_select.selection.rows[0]]['base_code']
+                family_editions = formulas_df[formulas_df['base_code'] == sel_base].sort_values(by='fr_code', ascending=False)
                 
                 st.write("##")
                 with st.container(border=True):
-                    st.markdown(f"#### ⚗️ {sel_f['fr_code']} - {sel_f['formula_name']}")
+                    # Edition Dropdown Selector
+                    if len(family_editions) > 1:
+                        edition_opts = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in family_editions.iterrows()]
+                        sel_edition_str = st.selectbox("📌 Select Specific Edition:", edition_opts)
+                        sel_fr_code = sel_edition_str.split("]")[0].replace("[", "")
+                        sel_f = family_editions[family_editions['fr_code'] == sel_fr_code].iloc[0]
+                    else:
+                        sel_f = family_editions.iloc[0]
+                        st.markdown(f"#### ⚗️ {sel_f['fr_code']} - {sel_f['formula_name']}")
+                        
+                    recipe_data = sel_f['recipe']
                     
+                    # Backward Compatibility Engine
+                    if isinstance(recipe_data, dict):
+                        recipe_items = [{"Phase": "A", "Ingredient": k, "%": v} for k, v in recipe_data.items()]
+                    elif isinstance(recipe_data, list):
+                        recipe_items = []
+                        for item in recipe_data:
+                            if "Phase" not in item: item["Phase"] = "A"
+                            recipe_items.append(item)
+                    else:
+                        recipe_items = []
+                    
+                    st.write("---")
                     b_size = st.number_input("Target Batch Size (grams)", min_value=1.0, value=1000.0, step=100.0)
                     st.write("---")
                     
                     calc_data = []; stock_ok = True; total_cost = 0.0
                     for row in recipe_items:
-                        ing = row['Ingredient']
-                        p = row['%']
-                        phase = row.get('Phase', 'A')
-                        
+                        ing = row.get('Ingredient'); p = row.get('%', 0); phase = row.get('Phase', 'A')
                         req_g = (p/100) * b_size
                         m = inventory[inventory['trade_name'] == ing]
                         if not m.empty:
                             s_kg = float(m['quantity_kg'].values[0]); p_kg = float(m['price_per_kg'].values[0])
                             if s_kg < (req_g/1000): stock_ok = False
-                            cost = (req_g/1000)*p_kg
-                            total_cost += cost
+                            cost = (req_g/1000)*p_kg; total_cost += cost
                             calc_data.append({"Phase": phase, "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "✅ Available" if s_kg >= (req_g/1000) else "❌ Shortage", "Est. Cost": f"${cost:.4f}", "req_kg": req_g/1000, "stock_kg": s_kg})
                         else:
                             stock_ok = False
@@ -530,15 +543,12 @@ if check_password():
                     
                     calc_df = pd.DataFrame(calc_data)
                     if not calc_df.empty:
-                        calc_df = calc_df.sort_values(by="Phase")
-                    st.dataframe(calc_df[['Phase', 'Material', 'Formula %', 'Needed (g)', 'Stock Status', 'Est. Cost']], use_container_width=True, hide_index=True)
+                        st.dataframe(calc_df.sort_values(by="Phase")[['Phase', 'Material', 'Formula %', 'Needed (g)', 'Stock Status', 'Est. Cost']], use_container_width=True, hide_index=True)
                     
-                    # Display Manufacturing Procedure
                     st.write("---")
                     st.markdown("#### 📋 Manufacturing Procedure")
                     proc_text = sel_f.get('procedure', 'No written procedure documented for this formula.')
-                    if pd.isna(proc_text) or str(proc_text).strip() == "":
-                        proc_text = "No written procedure documented for this formula."
+                    if pd.isna(proc_text) or str(proc_text).strip() == "": proc_text = "No written procedure documented for this formula."
                     st.info(proc_text)
                     st.write("---")
                     
@@ -557,46 +567,63 @@ if check_password():
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
-                    # VERSIONING SYSTEM
+                    # VERSIONING & EDITING SYSTEM
                     st.divider()
-                    c_act1, c_act2 = st.columns(2)
+                    c_act1, c_act2, c_act3 = st.columns(3)
                     with c_act1:
-                        with st.expander("🔄 Create New Edition (Version)"):
-                            st.info("Locks this formula to the parent FR code and drops it into the Architect to draft a new edition (e.g., -2).")
-                            if st.button("Load into Architect", use_container_width=True):
+                        with st.expander("✏️ Edit Current Edition"):
+                            st.info("Loads this exact formula into the Architect below to modify it and overwrite this version.")
+                            if st.button("Edit This Version", use_container_width=True):
                                 st.session_state.builder = pd.DataFrame(recipe_items)
-                                
+                                st.session_state.draft_name = sel_f['formula_name']
+                                st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
+                                st.session_state.edit_formula_id = int(sel_f['id'])
+                                st.session_state.edit_fr_code = sel_f['fr_code']
+                                if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
+                                st.rerun()
+                    with c_act2:
+                        with st.expander("🔄 Create New Edition"):
+                            st.info("Locks this formula to the parent FR code and drops it into the Architect to draft a new edition (e.g., -2).")
+                            if st.button("Draft New Version", use_container_width=True):
+                                st.session_state.builder = pd.DataFrame(recipe_items)
                                 match = re.search(r' V(\d+)$', sel_f['formula_name'])
                                 if match:
                                     new_v = int(match.group(1)) + 1
                                     new_name = re.sub(r' V\d+$', f' V{new_v}', sel_f['formula_name'])
                                 else:
                                     new_name = f"{sel_f['formula_name']} V2"
-                                
                                 st.session_state.draft_name = new_name
                                 st.session_state.base_fr_code = sel_f['fr_code']
                                 st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
+                                if "edit_formula_id" in st.session_state: del st.session_state["edit_formula_id"]
                                 st.rerun()
-                    with c_act2:
-                        with st.expander("System Actions: Erase Formula"):
+                    with c_act3:
+                        with st.expander("🗑️ Erase Formula"):
                             del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
-                            if st.button("Permanently Delete Formula") and del_f_pass == "lab2026":
+                            if st.button("Permanently Delete", use_container_width=True) and del_f_pass == "lab2026":
                                 supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); st.rerun()
         else:
             st.info("No formulas architected yet.")
 
         st.write("---")
-        with st.expander("⚙️ Architect New Formula", expanded=True):
+        with st.expander("⚙️ Architect Formula Builder", expanded=True):
             c_build, c_metrics = st.columns([3, 2])
             with c_build:
-                if "base_fr_code" in st.session_state:
+                if "edit_formula_id" in st.session_state:
+                    st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>✏️ EDITING MODE: Overwriting {st.session_state.edit_fr_code}</span>", unsafe_allow_html=True)
+                    if st.button("❌ Cancel Edit & Start Fresh"):
+                        st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
+                        for key in ["draft_name", "edit_formula_id", "edit_fr_code", "draft_procedure"]:
+                            if key in st.session_state: del st.session_state[key]
+                        st.rerun()
+                    st.write("")
+                elif "base_fr_code" in st.session_state:
                     base_disp = st.session_state.base_fr_code.split('-')[0]
-                    st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>🔗 LINKED PARENT CODE: {base_disp}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>🔗 NEW EDITION MODE: Linked to Parent {base_disp}</span>", unsafe_allow_html=True)
                     if st.button("❌ Cancel Edition & Start Fresh"):
                         st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
-                        if "draft_name" in st.session_state: del st.session_state["draft_name"]
-                        if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
-                        if "draft_procedure" in st.session_state: del st.session_state["draft_procedure"]
+                        for key in ["draft_name", "base_fr_code", "draft_procedure"]:
+                            if key in st.session_state: del st.session_state[key]
                         st.rerun()
                     st.write("")
                 
@@ -649,32 +676,40 @@ if check_password():
                 
                 if round(total_perc, 2) == 100.0:
                     st.success("✅ Formula is balanced (100%)")
-                    if st.button("Commit Formula to Vault", type="primary", use_container_width=True) and f_name:
-                        if "base_fr_code" in st.session_state:
-                            base_code = st.session_state.base_fr_code.split('-')[0]
-                            existing_v_count = formulas_df[formulas_df['fr_code'].str.startswith(base_code)].shape[0]
-                            fr_c = f"{base_code}-{existing_v_count + 1}"
-                        else:
-                            if formulas_df.empty:
-                                fr_c = "FR00001"
-                            else:
-                                root_codes = formulas_df['fr_code'].str.extract(r'FR(\d{5})')[0].dropna().astype(int)
-                                next_id = root_codes.max() + 1 if not root_codes.empty else 1
-                                fr_c = f"FR{next_id:05d}"
-                        
+                    
+                    btn_label = "💾 Update Existing Edition" if "edit_formula_id" in st.session_state else "Commit Formula to Vault"
+                    
+                    if st.button(btn_label, type="primary", use_container_width=True) and f_name:
                         recipe_json = edit_df.to_dict(orient='records')
                         
-                        supabase.table("formulas").insert({
-                            "fr_code": fr_c, 
-                            "formula_name": f_name, 
-                            "recipe": recipe_json,
-                            "procedure": procedure_text
-                        }).execute()
-                        
+                        if "edit_formula_id" in st.session_state:
+                            supabase.table("formulas").update({
+                                "formula_name": f_name, 
+                                "recipe": recipe_json,
+                                "procedure": procedure_text
+                            }).eq('id', st.session_state.edit_formula_id).execute()
+                        else:
+                            if "base_fr_code" in st.session_state:
+                                base_code = st.session_state.base_fr_code.split('-')[0]
+                                existing_v_count = formulas_df[formulas_df['fr_code'].str.startswith(base_code)].shape[0]
+                                fr_c = f"{base_code}-{existing_v_count + 1}"
+                            else:
+                                if formulas_df.empty:
+                                    fr_c = "FR00001"
+                                else:
+                                    root_codes = formulas_df['fr_code'].str.extract(r'FR(\d{5})')[0].dropna().astype(int)
+                                    next_id = root_codes.max() + 1 if not root_codes.empty else 1
+                                    fr_c = f"FR{next_id:05d}"
+                            
+                            supabase.table("formulas").insert({
+                                "fr_code": fr_c, "formula_name": f_name, 
+                                "recipe": recipe_json, "procedure": procedure_text
+                            }).execute()
+                            
+                        # Clear builder
                         st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
-                        if "draft_name" in st.session_state: del st.session_state["draft_name"]
-                        if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
-                        if "draft_procedure" in st.session_state: del st.session_state["draft_procedure"]
+                        for key in ["draft_name", "base_fr_code", "draft_procedure", "edit_formula_id", "edit_fr_code"]:
+                            if key in st.session_state: del st.session_state[key]
                         st.rerun()
                 else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
@@ -719,7 +754,6 @@ if check_password():
             n_only = sel_form.split("] ")[1]
             rec = formulas_df[formulas_df['formula_name'] == n_only].iloc[0]['recipe']
             
-            # Compatibility parsing for old vs new formula formats
             if isinstance(rec, dict):
                 rec_items = [{"Ingredient": k, "%": v} for k, v in rec.items()]
             elif isinstance(rec, list):
@@ -728,8 +762,8 @@ if check_password():
                 rec_items = []
                 
             for row in rec_items:
-                ing = row['Ingredient']
-                p = row['%']
+                ing = row.get('Ingredient')
+                p = row.get('%', 0)
                 req_g = (p/100) * fill_wt
                 m = inventory[inventory['trade_name'] == ing]
                 if not m.empty:
