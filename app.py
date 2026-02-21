@@ -229,20 +229,24 @@ if check_password():
             
             c_year, c_target = st.columns([1, 3])
             selected_year = c_year.selectbox("Fiscal Year", years_available)
-            annual_target = c_target.number_input("Annual Revenue Target ($)", value=5000, step=5000)
+            annual_target = c_target.number_input("Annual Revenue Target ($)", value=50000, step=5000)
             
+            # Filter for selected year metrics
             yr_df = sales_records_df[sales_records_df['Year'] == selected_year]
             
             yr_rev = yr_df['gross_revenue'].sum()
             yr_profit = yr_df['net_profit'].sum()
             yr_units = yr_df['quantity'].sum()
             avg_margin = (yr_profit / yr_rev * 100) if yr_rev > 0 else 0.0
-            pending_rev = yr_df[yr_df['status'] == 'Pending']['gross_revenue'].sum()
+            
+            # GLOBAL Pending Receivables (Accounts Receivable spans across years)
+            global_pending_df = sales_records_df[sales_records_df['status'] == 'Pending'].copy()
+            global_pending_rev = global_pending_df['gross_revenue'].sum()
             
             st.write("---")
             k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric(f"{selected_year} Gross Revenue", f"${yr_rev:,.2f}")
-            k2.metric("Pending Receivables", f"${pending_rev:,.2f}", delta="-Uncollected" if pending_rev > 0 else None, delta_color="inverse")
+            k2.metric("Total Pending Cash", f"${global_pending_rev:,.2f}", delta="-Uncollected" if global_pending_rev > 0 else None, delta_color="inverse")
             k3.metric("Net Profit", f"${yr_profit:,.2f}")
             k4.metric("Avg. Profit Margin", f"{avg_margin:.1f}%")
             k5.metric("Total Units Sold", f"{yr_units:,}")
@@ -251,8 +255,34 @@ if check_password():
             st.write(f"**Annual Target Progress:** {progress_pct*100:.1f}% (${yr_rev:,.0f} / ${annual_target:,.0f})")
             st.progress(progress_pct)
             
+            # 🚨 AGING RECEIVABLES EXPANDER 🚨
+            if not global_pending_df.empty:
+                st.write("")
+                with st.expander(f"⚠️ View Aging Receivables ({len(global_pending_df)} Unpaid Line Items)"):
+                    today = pd.Timestamp(datetime.now().date())
+                    global_pending_df['Days Pending'] = (today - global_pending_df['sale_date']).dt.days
+                    
+                    def format_age(days):
+                        if days > 60: return f"🔴 {days} days"
+                        elif days > 30: return f"🟠 {days} days"
+                        else: return f"🟢 {days} days"
+                    
+                    global_pending_df['Aging'] = global_pending_df['Days Pending'].apply(format_age)
+                    aging_df = global_pending_df.sort_values(by='Days Pending', ascending=False)
+                    aging_df['sale_date'] = aging_df['sale_date'].dt.strftime('%Y-%m-%d')
+                    
+                    st.dataframe(
+                        aging_df[['Aging', 'sale_date', 'account', 'order_ref_number', 'order_description', 'gross_revenue']],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "gross_revenue": st.column_config.NumberColumn("Amount Due", format="$%.2f")
+                        }
+                    )
+            
             st.write("---")
             st.markdown("#### Transaction Ledger & Order Management")
+            st.write("💡 *Update the 'Status' dropdown directly. Check the 🔍 box to inspect the full order, download the PDF invoice, or reverse it.*")
             
             display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
             display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
