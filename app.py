@@ -257,7 +257,7 @@ if check_password():
                         st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}]); st.rerun()
                 else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
-    # --- 5. COGS CALCULATOR (UPGRADED WITH SAVE FUNCTION) ---
+    # --- 5. COGS CALCULATOR ---
     elif menu == "COGS Calculator":
         st.title("Cost of Goods Sold (COGS)")
         st.markdown("<p style='color: #64748B;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
@@ -296,6 +296,7 @@ if check_password():
 
         # --- Math Engine ---
         bulk_cost = 0.0
+        n_only = ""
         if sel_form:
             n_only = sel_form.split("] ")[1]
             rec = formulas_df[formulas_df['formula_name'] == n_only].iloc[0]['recipe']
@@ -313,7 +314,7 @@ if check_password():
 
         total_cogs = bulk_cost + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
 
-        # --- Financial Results & Saving ---
+        # --- Financial Results ---
         st.markdown("#### Cost Breakdown & Profit Margin")
         r1, r2 = st.columns([2, 1])
         
@@ -327,16 +328,27 @@ if check_password():
                 {"Component": "Labor / Mfg Overhead", "Cost per Unit": f"${cost_mfg:.4f}"}
             ]), use_container_width=True, hide_index=True)
             
-            # Save COGS Section
-            st.write("##")
-            st.markdown("#### Save COGS Configuration")
-            sc1, sc2 = st.columns([2, 1])
+        with r2:
+            with st.container(border=True):
+                st.metric("Total COGS per Unit", f"${total_cogs:.2f}")
+                target_retail = st.number_input("Target Retail Price ($)", min_value=0.0, value=total_cogs * 4 if total_cogs > 0 else 0.0, step=1.0)
+                
+                margin_pct = 0.0
+                if target_retail > 0:
+                    gross_profit = target_retail - total_cogs
+                    margin_pct = (gross_profit / target_retail) * 100
+                    st.write("---")
+                    st.metric("Gross Profit", f"${gross_profit:.2f}", f"{margin_pct:.1f}% Margin")
+
+        # --- Profile Save Section ---
+        st.write("##")
+        with st.container(border=True):
+            st.markdown("#### 💾 Save COGS Configuration")
+            sc1, sc2 = st.columns([3, 1])
             cogs_name = sc1.text_input("Product Name / SKU", placeholder="e.g., Actiflam 30ml Retail Bottle")
             
-            margin_pct = 0.0 # Define globally
-            target_retail = 0.0
-            
-            if sc2.button("💾 Save COGS Profile", type="primary", use_container_width=True):
+            sc2.write("<br>", unsafe_allow_html=True)
+            if sc2.button("Commit Profile to Vault", type="primary", use_container_width=True):
                 if cogs_name:
                     supabase.table('cogs_records').insert({
                         "product_name": cogs_name, "formula_name": n_only if sel_form else "None",
@@ -349,18 +361,7 @@ if check_password():
                 else:
                     st.error("Please enter a Product Name before saving.")
 
-        with r2:
-            with st.container(border=True):
-                st.metric("Total COGS per Unit", f"${total_cogs:.2f}")
-                target_retail = st.number_input("Target Retail Price ($)", min_value=0.0, value=total_cogs * 4 if total_cogs > 0 else 0.0, step=1.0)
-                
-                if target_retail > 0:
-                    gross_profit = target_retail - total_cogs
-                    margin_pct = (gross_profit / target_retail) * 100
-                    st.write("---")
-                    st.metric("Gross Profit", f"${gross_profit:.2f}", f"{margin_pct:.1f}% Margin")
-
-        # --- Saved COGS Profiles Vault ---
+        # --- Saved COGS Profiles Vault (Now Editable!) ---
         st.write("---")
         st.markdown("#### 📂 Saved COGS Profiles")
         cogs_resp = supabase.table('cogs_records').select('*').order('created_at', desc=True).execute()
@@ -368,19 +369,40 @@ if check_password():
         if cogs_resp.data:
             cogs_df = pd.DataFrame(cogs_resp.data)
             display_cogs = cogs_df.copy()
-            
-            # Format columns cleanly
             display_cogs['Date'] = pd.to_datetime(display_cogs['created_at']).dt.strftime('%Y-%m-%d')
-            display_cogs['total_cogs'] = display_cogs['total_cogs'].map('${:,.2f}'.format)
-            display_cogs['target_retail'] = display_cogs['target_retail'].map('${:,.2f}'.format)
-            display_cogs['gross_margin_pct'] = display_cogs['gross_margin_pct'].map('{:,.1f}%'.format)
             display_cogs.insert(0, '🔍', False)
             
+            st.write("💡 *Edit the 'product_name' or 'target_retail' directly in the table. Margins auto-update when saving.*")
+            
             with st.container(border=True):
+                # Using NumberColumn to format the money and percentages without blocking edits
                 edited_cogs = st.data_editor(
                     display_cogs[['🔍', 'Date', 'product_name', 'formula_name', 'fill_weight_g', 'total_cogs', 'target_retail', 'gross_margin_pct']],
-                    use_container_width=True, hide_index=True, disabled=['Date', 'product_name', 'formula_name', 'fill_weight_g', 'total_cogs', 'target_retail', 'gross_margin_pct']
+                    use_container_width=True, hide_index=True, 
+                    disabled=['Date', 'formula_name', 'fill_weight_g', 'total_cogs', 'gross_margin_pct'],
+                    column_config={
+                        "total_cogs": st.column_config.NumberColumn("Total COGS", format="$%.2f"),
+                        "target_retail": st.column_config.NumberColumn("Target Retail", format="$%.2f"),
+                        "gross_margin_pct": st.column_config.NumberColumn("Margin %", format="%.1f%%")
+                    }
                 )
+                
+                if st.button("💾 Synchronize COGS Vault", type="primary"):
+                    for index, row in edited_cogs.iterrows():
+                        orig = cogs_df.loc[index]
+                        # Check if product name or retail price was changed
+                        if row['product_name'] != orig['product_name'] or row['target_retail'] != orig['target_retail']:
+                            new_retail = float(row['target_retail'])
+                            new_cogs = float(orig['total_cogs'])
+                            new_margin = ((new_retail - new_cogs) / new_retail * 100) if new_retail > 0 else 0.0
+                            
+                            supabase.table('cogs_records').update({
+                                "product_name": row['product_name'],
+                                "target_retail": new_retail,
+                                "gross_margin_pct": new_margin
+                            }).eq('id', int(orig['id'])).execute()
+                    st.success("COGS profiles synced!")
+                    st.rerun()
             
             selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
             if not selected_cogs.empty:
@@ -397,6 +419,8 @@ if check_password():
                             if del_cogs_pass == "lab2026":
                                 supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute()
                                 st.rerun()
+                            else:
+                                st.error("Incorrect passcode.")
         else:
             st.info("No COGS profiles saved in the vault.")
 
