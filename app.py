@@ -5,6 +5,7 @@ from supabase import create_client, Client
 from PIL import Image
 import re
 import time
+from fpdf import FPDF
 
 # --- 1. PAGE CONFIGURATION ---
 try:
@@ -38,7 +39,7 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- Robust Data Fetching (Auto-Retry Armor) ---
+# --- Robust Data Fetching ---
 def fetch_vault_data(table_name, sort_column=None):
     for attempt in range(3): 
         try:
@@ -51,6 +52,57 @@ def fetch_vault_data(table_name, sort_column=None):
             time.sleep(0.5) 
     st.error(f"⚠️ Network timeout while accessing the {table_name} vault. Please refresh the page.")
     st.stop()
+
+# --- PDF Generation Engine ---
+def generate_order_pdf(order_ref, items_df, client_name, date_str):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Header
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, "Official Order Summary", ln=True, align="C")
+    pdf.ln(10)
+    
+    # Client & Order Details
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(100, 8, f"Billed To: {client_name}")
+    pdf.cell(0, 8, f"Date: {date_str}", ln=True, align="R")
+    pdf.cell(0, 8, f"Order Ref: {order_ref}", ln=True, align="R")
+    pdf.ln(5)
+    
+    # Table Header
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(90, 8, "Product Description", border=1)
+    pdf.cell(25, 8, "Qty", border=1, align="C")
+    pdf.cell(35, 8, "Unit Price", border=1, align="R")
+    pdf.cell(40, 8, "Line Total", border=1, align="R")
+    pdf.ln()
+    
+    # Table Rows
+    pdf.set_font("Arial", "", 10)
+    grand_total = 0.0
+    for _, row in items_df.iterrows():
+        desc = str(row['order_description'])[:45]
+        qty = str(row['quantity'])
+        price = float(row['unit_price'])
+        total = float(row['gross_revenue'])
+        grand_total += total
+        
+        pdf.cell(90, 8, desc, border=1)
+        pdf.cell(25, 8, qty, border=1, align="C")
+        pdf.cell(35, 8, f"${price:,.2f}", border=1, align="R")
+        pdf.cell(40, 8, f"${total:,.2f}", border=1, align="R")
+        pdf.ln()
+        
+    # Grand Total
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(150, 8, "Grand Total", border=1, align="R")
+    pdf.cell(40, 8, f"${grand_total:,.2f}", border=1, align="R")
+    
+    # Return as bytes
+    return pdf.output(dest="S").encode("latin-1")
 
 # --- Authentication Logic ---
 def check_password():
@@ -99,7 +151,7 @@ if check_password():
     cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
     sales_records_df = fetch_vault_data('sales_records', 'sale_date')
 
-    # --- 1. SALES & REVENUE (UPGRADED WITH REVERSAL ENGINE) ---
+    # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":
         st.title("Sales & Revenue Tracker")
         st.markdown("<p style='color: #64748B;'>Monitor order volume, track pending receivables, and manage vault stock deductions.</p>", unsafe_allow_html=True)
@@ -135,10 +187,10 @@ if check_password():
             st.write(f"**Annual Target Progress:** {progress_pct*100:.1f}% (${yr_rev:,.0f} / ${annual_target:,.0f})")
             st.progress(progress_pct)
             
-            # Interactive Ledger with Reversal Select
+            # Interactive Ledger
             st.write("---")
-            st.markdown("#### Transaction Ledger & Payment Tracking")
-            st.write("💡 *Update the 'Status' dropdown directly to mark pending orders as Paid. Check the 🔍 box to reverse an order.*")
+            st.markdown("#### Transaction Ledger & Order Management")
+            st.write("💡 *Update the 'Status' dropdown directly. Check the 🔍 box to inspect the full order, download the PDF invoice, or reverse it.*")
             
             display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
             display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
@@ -166,39 +218,68 @@ if check_password():
                     st.success("Ledger payments synchronized!")
                     st.rerun()
 
-            # REVERSAL INSPECTION PANEL
+            # ORDER INSPECTION & PDF EXPORT
             selected_sales = edited_sales[edited_sales['🔍'] == True]
             if not selected_sales.empty:
                 sel_id = selected_sales.iloc[0]['id']
                 sale_item = yr_df[yr_df['id'] == sel_id].iloc[0]
+                ref_num = sale_item['order_ref_number']
+                
+                # Fetch all items in this specific order
+                if pd.notna(ref_num) and str(ref_num).strip() != "":
+                    order_items = yr_df[yr_df['order_ref_number'] == ref_num]
+                else:
+                    # If no ref number, just show the single line item
+                    order_items = pd.DataFrame([sale_item])
                 
                 st.write("##")
                 with st.container(border=True):
-                    st.markdown(f"#### 🔄 Inspecting Order: {sale_item['order_ref_number']} - {sale_item['order_description']}")
-                    st.write(f"**Client:** {sale_item['account']} | **Qty Sold:** {sale_item['quantity']} | **Revenue:** ${sale_item['gross_revenue']:.2f}")
+                    st.markdown(f"#### 📦 Inspecting Order Reference: {ref_num if pd.notna(ref_num) else 'Unreferenced'}")
+                    st.write(f"**Client:** {sale_item['account']} | **Date:** {sale_item['sale_date'].strftime('%Y-%m-%d')}")
                     
-                    with st.expander("⚠️ System Actions: Reverse Transaction"):
-                        st.warning(f"This will completely erase this sales record and return **{sale_item['quantity']} units** of {sale_item['order_description']} back to your Finished Products vault.")
-                        rev_pass = st.text_input("Authorization Passcode", type="password", key=f"rev_{sel_id}")
+                    st.dataframe(order_items[['order_description', 'quantity', 'unit_price', 'gross_revenue']], hide_index=True, use_container_width=True)
+                    order_total = order_items['gross_revenue'].sum()
+                    st.metric("Total Order Value", f"${order_total:,.2f}")
+                    
+                    col_pdf, col_rev = st.columns(2)
+                    
+                    with col_pdf:
+                        # Generate the PDF byte stream
+                        pdf_bytes = generate_order_pdf(
+                            str(ref_num), 
+                            order_items, 
+                            str(sale_item['account']), 
+                            sale_item['sale_date'].strftime('%Y-%m-%d')
+                        )
+                        st.download_button(
+                            label="📄 Download PDF Order Summary",
+                            data=pdf_bytes,
+                            file_name=f"TherapeuticOils_Order_{ref_num}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
                         
-                        if st.button("Reverse Sale & Restore Stock", type="primary"):
-                            if rev_pass == "lab2026":
-                                # 1. Return stock to Finished Products
-                                fp_match = finished_goods[finished_goods['product_name'] == sale_item['order_description']]
-                                if not fp_match.empty:
-                                    fp_id = int(fp_match.iloc[0]['id'])
-                                    current_stock = int(fp_match.iloc[0]['stock_quantity'])
-                                    new_stock = current_stock + int(sale_item['quantity'])
-                                    supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', fp_id).execute()
-                                
-                                # 2. Erase the sales record
-                                supabase.table('sales_records').delete().eq('id', int(sel_id)).execute()
-                                
-                                st.success("Transaction reversed! Financials updated and stock restored.")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error("Incorrect passcode.")
+                    with col_rev:
+                        with st.expander("⚠️ System Actions: Reverse Line Item"):
+                            st.warning(f"This will erase **this specific line item** ({sale_item['order_description']}) and return **{sale_item['quantity']} units** back to the vault.")
+                            rev_pass = st.text_input("Authorization Passcode", type="password", key=f"rev_{sel_id}")
+                            
+                            if st.button("Reverse Sale & Restore Stock", type="primary"):
+                                if rev_pass == "lab2026":
+                                    fp_match = finished_goods[finished_goods['product_name'] == sale_item['order_description']]
+                                    if not fp_match.empty:
+                                        fp_id = int(fp_match.iloc[0]['id'])
+                                        current_stock = int(fp_match.iloc[0]['stock_quantity'])
+                                        new_stock = current_stock + int(sale_item['quantity'])
+                                        supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', fp_id).execute()
+                                    
+                                    supabase.table('sales_records').delete().eq('id', int(sel_id)).execute()
+                                    
+                                    st.success("Transaction reversed! Financials updated and stock restored.")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("Incorrect passcode.")
         else:
             st.info("No sales records imported or logged yet.")
 
@@ -486,7 +567,6 @@ if check_password():
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
-                    # VERSIONING SYSTEM
                     st.divider()
                     c_act1, c_act2 = st.columns(2)
                     with c_act1:
