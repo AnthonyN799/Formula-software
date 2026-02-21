@@ -99,10 +99,10 @@ if check_password():
     cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
     sales_records_df = fetch_vault_data('sales_records', 'sale_date')
 
-    # --- 1. SALES & REVENUE ---
+    # --- 1. SALES & REVENUE (UPGRADED WITH REVERSAL ENGINE) ---
     if menu == "Sales & Revenue":
         st.title("Sales & Revenue Tracker")
-        st.markdown("<p style='color: #64748B;'>Monitor order volume, track pending receivables, and automatically deduct sold units from vault stock.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>Monitor order volume, track pending receivables, and manage vault stock deductions.</p>", unsafe_allow_html=True)
         
         if not sales_records_df.empty:
             sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'])
@@ -121,7 +121,6 @@ if check_password():
             yr_units = yr_df['quantity'].sum()
             avg_margin = (yr_profit / yr_rev * 100) if yr_rev > 0 else 0.0
             
-            # Identify pending cash
             pending_rev = yr_df[yr_df['status'] == 'Pending']['gross_revenue'].sum()
             
             st.write("---")
@@ -132,27 +131,27 @@ if check_password():
             k4.metric("Avg. Profit Margin", f"{avg_margin:.1f}%")
             k5.metric("Total Units Sold", f"{yr_units:,}")
             
-            # Target Progress Bar
             progress_pct = min(yr_rev / annual_target, 1.0) if annual_target > 0 else 0.0
             st.write(f"**Annual Target Progress:** {progress_pct*100:.1f}% (${yr_rev:,.0f} / ${annual_target:,.0f})")
             st.progress(progress_pct)
             
-            # Interactive Ledger
+            # Interactive Ledger with Reversal Select
             st.write("---")
             st.markdown("#### Transaction Ledger & Payment Tracking")
-            st.write("💡 *Update the 'Status' dropdown directly in the table to mark pending orders as Paid.*")
+            st.write("💡 *Update the 'Status' dropdown directly to mark pending orders as Paid. Check the 🔍 box to reverse an order.*")
             
             display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
             display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
+            display_sales.insert(0, '🔍', False)
             
             with st.container(border=True):
                 edited_sales = st.data_editor(
-                    display_sales[['id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel', 'status']], 
+                    display_sales[['🔍', 'id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel', 'status']], 
                     use_container_width=True, 
                     hide_index=True,
                     disabled=['id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel'],
                     column_config={
-                        "id": None, # Hides the database ID from view
+                        "id": None, 
                         "gross_revenue": st.column_config.NumberColumn("Gross Rev", format="$%.2f"),
                         "net_profit": st.column_config.NumberColumn("Net Profit", format="$%.2f"),
                         "status": st.column_config.SelectboxColumn("Status", options=["Paid", "Pending", "Cancelled"], required=True)
@@ -166,6 +165,40 @@ if check_password():
                             supabase.table('sales_records').update({'status': row['status']}).eq('id', int(row['id'])).execute()
                     st.success("Ledger payments synchronized!")
                     st.rerun()
+
+            # REVERSAL INSPECTION PANEL
+            selected_sales = edited_sales[edited_sales['🔍'] == True]
+            if not selected_sales.empty:
+                sel_id = selected_sales.iloc[0]['id']
+                sale_item = yr_df[yr_df['id'] == sel_id].iloc[0]
+                
+                st.write("##")
+                with st.container(border=True):
+                    st.markdown(f"#### 🔄 Inspecting Order: {sale_item['order_ref_number']} - {sale_item['order_description']}")
+                    st.write(f"**Client:** {sale_item['account']} | **Qty Sold:** {sale_item['quantity']} | **Revenue:** ${sale_item['gross_revenue']:.2f}")
+                    
+                    with st.expander("⚠️ System Actions: Reverse Transaction"):
+                        st.warning(f"This will completely erase this sales record and return **{sale_item['quantity']} units** of {sale_item['order_description']} back to your Finished Products vault.")
+                        rev_pass = st.text_input("Authorization Passcode", type="password", key=f"rev_{sel_id}")
+                        
+                        if st.button("Reverse Sale & Restore Stock", type="primary"):
+                            if rev_pass == "lab2026":
+                                # 1. Return stock to Finished Products
+                                fp_match = finished_goods[finished_goods['product_name'] == sale_item['order_description']]
+                                if not fp_match.empty:
+                                    fp_id = int(fp_match.iloc[0]['id'])
+                                    current_stock = int(fp_match.iloc[0]['stock_quantity'])
+                                    new_stock = current_stock + int(sale_item['quantity'])
+                                    supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', fp_id).execute()
+                                
+                                # 2. Erase the sales record
+                                supabase.table('sales_records').delete().eq('id', int(sel_id)).execute()
+                                
+                                st.success("Transaction reversed! Financials updated and stock restored.")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Incorrect passcode.")
         else:
             st.info("No sales records imported or logged yet.")
 
@@ -188,7 +221,6 @@ if check_password():
                     
                     c_price, c_status = st.columns(2)
                     
-                    # Pull defaults
                     fg_match = finished_goods[finished_goods['product_name'] == sel_product].iloc[0]
                     default_price = float(fg_match['retail_price'])
                     unit_cogs = float(fg_match['unit_cogs'])
@@ -206,11 +238,9 @@ if check_password():
                             net = gross - total_cogs
                             gm = (net / gross) if gross > 0 else 0.0
                             
-                            # 1. Update stock
                             new_stock = current_stock - qty_sold
                             supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_match['id'])).execute()
                             
-                            # 2. Log sale
                             supabase.table('sales_records').insert({
                                 "order_description": sel_product,
                                 "quantity": qty_sold, "unit_price": unit_price,
