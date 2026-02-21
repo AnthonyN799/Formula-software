@@ -3,10 +3,10 @@ import pandas as pd
 from datetime import datetime
 from supabase import create_client, Client
 
-# --- 1. PAGE CONFIGURATION (Must be the very first Streamlit command) ---
+# --- 1. PAGE CONFIGURATION (With your new Favicon) ---
 st.set_page_config(
     page_title="Therapeutic Oils | Lab Portal",
-    page_icon="🌿",
+    page_icon="logo.jpg", # This changes the browser tab to your leaf
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -96,11 +96,15 @@ def check_password():
     if st.session_state["authenticated"]:
         return True
     
-    # Login Screen Styling
+    # Login Screen Styling with Logo
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.write("<br><br><br>", unsafe_allow_html=True)
-        st.markdown("<h1 style='text-align: center; font-weight: 300;'>Therapeutic Oils</h1>", unsafe_allow_html=True)
+        try:
+            st.image("logo.jpg", use_container_width=True)
+        except:
+            st.markdown("<h1 style='text-align: center; font-weight: 300;'>Therapeutic Oils</h1>", unsafe_allow_html=True)
+        
         st.markdown("<p style='text-align: center; color: #64748B;'>Secure Laboratory Portal</p>", unsafe_allow_html=True)
         password = st.text_input("Passcode", type="password", placeholder="Enter team passcode...")
         if st.button("Authenticate", use_container_width=True, type="primary"):
@@ -115,8 +119,14 @@ def check_password():
 if check_password():
     inject_custom_css()
     
+    # Sidebar with Logo
     with st.sidebar:
-        st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
+        try:
+            st.image("logo.jpg", use_container_width=True)
+        except:
+            st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
+        
+        st.write("##")
         menu = st.radio("System Menu", ["Financial Overview", "Raw Material Library", "Packaging Library", "Formula Hub", "Production Logs"])
         st.write("<br><br>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True):
@@ -312,7 +322,7 @@ if check_password():
                     if s_kg < (req_g/1000): stock_ok = False
                     calc_data.append({
                         "Material": ing, "Required (g)": f"{req_g:.2f}", 
-                        "Stock Status": "✅ Stable" if s_kg >= (req_g/1000) else "❌ Shortage", 
+                        "Stock Status": "✅ Available" if s_kg >= (req_g/1000) else "❌ Shortage", 
                         "cost": (req_g/1000)*p_kg, "req_kg": req_g/1000, "stock_kg": s_kg
                     })
                 
