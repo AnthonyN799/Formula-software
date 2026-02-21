@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 from supabase import create_client, Client
 from PIL import Image
+import re
 
 # --- 1. PAGE CONFIGURATION ---
 try:
@@ -192,7 +193,7 @@ if check_password():
                     next_pm = 1 if packaging.empty else int(packaging['id'].max()) + 1
                     supabase.table('packaging').insert({"pm_code": f"PM{next_pm:05d}", "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q}).execute(); st.rerun()
 
-    # --- 4. FINISHED PRODUCTS LIBRARY (FIXED COLD START) ---
+    # --- 4. FINISHED PRODUCTS LIBRARY ---
     elif menu == "Finished Products":
         st.title("Finished Products")
         st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
@@ -253,41 +254,26 @@ if check_password():
                     if st.form_submit_button("Add to Stock"):
                         cogs_id = int(sel_cogs.split("]")[0].replace("[", ""))
                         matched_cogs = cogs_records_df[cogs_records_df['id'] == cogs_id].iloc[0]
-                        
                         target_name = matched_cogs['product_name']
                         target_cogs = float(matched_cogs['total_cogs'])
                         target_retail = float(matched_cogs['target_retail'])
                         
-                        # FIXED: Safe check for empty dataframe to prevent KeyError
                         if not finished_goods.empty and target_name in finished_goods['product_name'].values:
                             existing_product = finished_goods[finished_goods['product_name'] == target_name]
                             existing_id = int(existing_product.iloc[0]['id'])
                             new_qty = int(existing_product.iloc[0]['stock_quantity']) + fp_q
-                            
-                            supabase.table('finished_products').update({
-                                "stock_quantity": new_qty,
-                                "unit_cogs": target_cogs,
-                                "retail_price": target_retail
-                            }).eq('id', existing_id).execute()
+                            supabase.table('finished_products').update({"stock_quantity": new_qty, "unit_cogs": target_cogs, "retail_price": target_retail}).eq('id', existing_id).execute()
                         else:
-                            # Create new product entry
                             next_fp = 1 if finished_goods.empty else int(finished_goods['id'].max()) + 1
-                            supabase.table('finished_products').insert({
-                                "fp_code": f"FP{next_fp:05d}", 
-                                "product_name": target_name, 
-                                "stock_quantity": fp_q, 
-                                "unit_cogs": target_cogs, 
-                                "retail_price": target_retail
-                            }).execute()
-                            
+                            supabase.table('finished_products').insert({"fp_code": f"FP{next_fp:05d}", "product_name": target_name, "stock_quantity": fp_q, "unit_cogs": target_cogs, "retail_price": target_retail}).execute()
                         st.rerun()
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 5. FORMULA HUB ---
+    # --- 5. FORMULA HUB (UPGRADED WITH VERSIONING) ---
     elif menu == "Formula Hub":
         st.title("The Formula Hub")
-        st.markdown("<p style='color: #64748B;'>Design, calculate, and execute batch productions.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
         
         if not formulas_df.empty:
             st.write("💡 *Click on any formula row below to inspect its recipe and execute a production batch.*")
@@ -335,11 +321,31 @@ if check_password():
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
+                    # VERSIONING AND DELETION
                     st.divider()
-                    with st.expander("System Actions: Erase Formula"):
-                        del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
-                        if st.button("Permanently Delete Formula") and del_f_pass == "lab2026":
-                            supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); st.rerun()
+                    c_act1, c_act2 = st.columns(2)
+                    with c_act1:
+                        with st.expander("🔄 Create New Edition (Version)"):
+                            st.info("Loads this recipe into the Architect below to create a new GMP-compliant version with a fresh FR code.")
+                            if st.button("Load into Architect", use_container_width=True):
+                                df_data = [{"Ingredient": k, "%": v} for k, v in recipe_data.items()]
+                                st.session_state.builder = pd.DataFrame(df_data)
+                                
+                                # Auto-bump version number
+                                match = re.search(r' V(\d+)$', sel_f['formula_name'])
+                                if match:
+                                    new_v = int(match.group(1)) + 1
+                                    new_name = re.sub(r' V\d+$', f' V{new_v}', sel_f['formula_name'])
+                                else:
+                                    new_name = f"{sel_f['formula_name']} V2"
+                                st.session_state.draft_name = new_name
+                                st.rerun()
+                                
+                    with c_act2:
+                        with st.expander("System Actions: Erase Formula"):
+                            del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
+                            if st.button("Permanently Delete Formula") and del_f_pass == "lab2026":
+                                supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); st.rerun()
         else:
             st.info("No formulas architected yet.")
 
@@ -347,7 +353,8 @@ if check_password():
         with st.expander("⚙️ Architect New Formula", expanded=True):
             c_build, c_metrics = st.columns([3, 2])
             with c_build:
-                f_name = st.text_input("Formula Moniker", placeholder="e.g., Actiflam Hair Growth Oil")
+                # Pre-fill name if coming from "Create New Edition"
+                f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil V2")
                 if "builder" not in st.session_state: st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
                 ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
                 edit_df = st.data_editor(st.session_state.builder, num_rows="dynamic", use_container_width=True, column_config={"Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options)})
@@ -364,13 +371,19 @@ if check_password():
                 if live_data: st.dataframe(pd.DataFrame(live_data), use_container_width=True, hide_index=True)
                 else: st.info("Select ingredients to see live costs.")
                 st.metric("Total Formula Cost / Kg", f"${total_cost_kg:,.2f}")
+                
                 total_perc = edit_df["%"].sum()
-                if total_perc == 100.0:
+                if round(total_perc, 2) == 100.0:
                     st.success("✅ Formula is balanced (100%)")
-                    if st.button("Commit Formula", type="primary", use_container_width=True) and f_name:
+                    if st.button("Commit Formula to Vault", type="primary", use_container_width=True) and f_name:
                         fr_c = f"FR{len(formulas_df)+1:05d}"
                         supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": dict(zip(edit_df["Ingredient"], edit_df["%"]))}).execute()
-                        st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}]); st.rerun()
+                        
+                        # Clear builder and draft name after saving
+                        st.session_state.builder = pd.DataFrame([{"Ingredient": None, "%": 0.0}])
+                        if "draft_name" in st.session_state:
+                            del st.session_state["draft_name"]
+                        st.rerun()
                 else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
     # --- 6. COGS CALCULATOR ---
