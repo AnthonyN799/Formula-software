@@ -239,7 +239,7 @@ if check_password():
             yr_units = yr_df['quantity'].sum()
             avg_margin = (yr_profit / yr_rev * 100) if yr_rev > 0 else 0.0
             
-            # GLOBAL Pending Receivables (Accounts Receivable spans across years)
+            # GLOBAL Pending Receivables
             global_pending_df = sales_records_df[sales_records_df['status'] == 'Pending'].copy()
             global_pending_rev = global_pending_df['gross_revenue'].sum()
             
@@ -282,7 +282,6 @@ if check_password():
             
             st.write("---")
             st.markdown("#### Transaction Ledger & Order Management")
-            st.write("💡 *Update the 'Status' dropdown directly. Check the 🔍 box to inspect the full order, download the PDF invoice, or reverse it.*")
             
             display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
             display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
@@ -345,7 +344,7 @@ if check_password():
                                         new_stock = current_stock + int(sale_item['quantity'])
                                         supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', fp_id).execute()
                                     supabase.table('sales_records').delete().eq('id', int(sel_id)).execute()
-                                    st.success("Transaction reversed! Financials updated and stock restored.")
+                                    st.success("Transaction reversed! Financials updated and FP stock restored.")
                                     time.sleep(1)
                                     st.rerun()
                                 else:
@@ -353,10 +352,18 @@ if check_password():
         else:
             st.info("No sales records imported or logged yet.")
 
+        # LOG NEW SALE FORM (UPGRADED WITH FULFILLMENT MATERIALS)
         st.write("---")
-        with st.expander("➕ Log New Sales Order (Deducts from Stock)", expanded=False):
+        with st.expander("➕ Log New Sales Order", expanded=False):
             if not finished_goods.empty:
+                
+                # Fetch packaging options for fulfillment
+                pkg_opts = ["None"]
+                if not packaging.empty:
+                    pkg_opts += packaging['material_name'].tolist()
+
                 with st.form("add_sale", clear_on_submit=True):
+                    st.markdown("#### 1. Core Order Details")
                     s1, s2, s3 = st.columns(3)
                     fp_opts = finished_goods['product_name'].tolist()
                     sel_product = s1.selectbox("Finished Product Sold", fp_opts)
@@ -377,25 +384,77 @@ if check_password():
                     unit_price = c_price.number_input("Final Unit Price Charged ($)", value=default_price, min_value=0.0)
                     status = c_status.selectbox("Payment Status", ["Paid", "Pending", "Cancelled"])
                     
-                    if st.form_submit_button("Log Order & Deduct Stock", type="primary"):
+                    st.write("---")
+                    st.markdown("#### 2. Shipping & Fulfillment Materials")
+                    st.markdown("<p style='color: #64748B; font-size: 0.85rem;'>Select boxes, inserts, or stickers used for this specific order. These will be deducted from your Packaging vault and their cost subtracted from the net profit.</p>", unsafe_allow_html=True)
+                    
+                    f_col1, f_col2, f_col3 = st.columns(3)
+                    f_item1 = f_col1.selectbox("Fulfillment Item 1", pkg_opts)
+                    f_qty1 = f_col1.number_input("Qty 1", min_value=1, step=1)
+                    
+                    f_item2 = f_col2.selectbox("Fulfillment Item 2", pkg_opts)
+                    f_qty2 = f_col2.number_input("Qty 2", min_value=1, step=1)
+                    
+                    f_item3 = f_col3.selectbox("Fulfillment Item 3", pkg_opts)
+                    f_qty3 = f_col3.number_input("Qty 3", min_value=1, step=1)
+                    
+                    st.write("---")
+                    if st.form_submit_button("Log Order & Deduct All Stock", type="primary", use_container_width=True):
                         if current_stock < qty_sold:
                             st.error(f"⚠️ Warning: You only have {current_stock} units of {sel_product} in stock. Sale aborted.")
                         else:
+                            # Base Financials
                             gross = qty_sold * unit_price
                             total_cogs = qty_sold * unit_cogs
-                            net = gross - total_cogs
-                            gm = (net / gross) if gross > 0 else 0.0
-                            new_stock = current_stock - qty_sold
-                            supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_match['id'])).execute()
-                            supabase.table('sales_records').insert({
-                                "order_description": sel_product, "quantity": qty_sold, "unit_price": unit_price,
-                                "gross_revenue": gross, "cogs": total_cogs, "net_profit": net,
-                                "account": client, "order_ref_number": order_ref,
-                                "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": channel, "status": status
-                            }).execute()
-                            st.success(f"Order logged! {qty_sold} units deducted from Finished Products.")
-                            time.sleep(1)
-                            st.rerun()
+                            
+                            # Fulfillment Math & Deductions Prep
+                            fulfillment_cost = 0.0
+                            pkg_updates = []
+                            shortage_flag = False
+                            shortage_msg = ""
+                            
+                            for item, q in [(f_item1, f_qty1), (f_item2, f_qty2), (f_item3, f_qty3)]:
+                                if item != "None":
+                                    pm_match = packaging[packaging['material_name'] == item].iloc[0]
+                                    pm_id = int(pm_match['id'])
+                                    pm_cost = float(pm_match['cost_per_unit'])
+                                    pm_stock = int(pm_match['remaining_quantity'])
+                                    
+                                    if pm_stock < q:
+                                        shortage_flag = True
+                                        shortage_msg = f"Not enough {item} in packaging vault (Have: {pm_stock}, Need: {q})."
+                                        break
+                                        
+                                    fulfillment_cost += (pm_cost * q)
+                                    pkg_updates.append({"id": pm_id, "new_stock": pm_stock - q})
+                            
+                            if shortage_flag:
+                                st.error(f"⚠️ {shortage_msg} Sale aborted.")
+                            else:
+                                # Apply fulfillment cost to total COGS
+                                total_cogs += fulfillment_cost
+                                net = gross - total_cogs
+                                gm = (net / gross) if gross > 0 else 0.0
+                                
+                                # 1. Deduct Finished Product
+                                new_fp_stock = current_stock - qty_sold
+                                supabase.table('finished_products').update({'stock_quantity': new_fp_stock}).eq('id', int(fg_match['id'])).execute()
+                                
+                                # 2. Deduct Fulfillment Packaging
+                                for pu in pkg_updates:
+                                    supabase.table('packaging').update({'remaining_quantity': pu['new_stock']}).eq('id', pu['id']).execute()
+                                
+                                # 3. Log the Sale to Database
+                                supabase.table('sales_records').insert({
+                                    "order_description": sel_product, "quantity": qty_sold, "unit_price": unit_price,
+                                    "gross_revenue": gross, "cogs": total_cogs, "net_profit": net,
+                                    "account": client, "order_ref_number": order_ref,
+                                    "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": channel, "status": status
+                                }).execute()
+                                
+                                st.success(f"Order logged! Deducted {qty_sold} {sel_product} and fulfillment materials from vaults.")
+                                time.sleep(1.5)
+                                st.rerun()
             else:
                 st.warning("⚠️ You must have products logged in the 'Finished Products' vault before you can process a sale.")
 
