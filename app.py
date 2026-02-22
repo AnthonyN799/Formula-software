@@ -352,7 +352,7 @@ if check_password():
         else:
             st.info("No sales records imported or logged yet.")
 
-        # LOG NEW SALE FORM (UPGRADED WITH FULFILLMENT MATERIALS)
+        # LOG NEW SALE FORM (UPGRADED WITH DYNAMIC FULFILLMENT MATERIALS)
         st.write("---")
         with st.expander("➕ Log New Sales Order", expanded=False):
             if not finished_goods.empty:
@@ -386,24 +386,25 @@ if check_password():
                     
                     st.write("---")
                     st.markdown("#### 2. Shipping & Fulfillment Materials")
-                    st.markdown("<p style='color: #64748B; font-size: 0.85rem;'>Select boxes, inserts, or stickers used for this specific order. These will be deducted from your Packaging vault and their cost subtracted from the net profit.</p>", unsafe_allow_html=True)
+                    st.markdown("<p style='color: #64748B; font-size: 0.85rem;'>Select boxes, inserts, or stickers used for this specific order. You can add as many rows as needed.</p>", unsafe_allow_html=True)
                     
-                    f_col1, f_col2, f_col3 = st.columns(3)
-                    f_item1 = f_col1.selectbox("Fulfillment Item 1", pkg_opts)
-                    f_qty1 = f_col1.number_input("Qty 1", min_value=1, step=1)
-                    
-                    f_item2 = f_col2.selectbox("Fulfillment Item 2", pkg_opts)
-                    f_qty2 = f_col2.number_input("Qty 2", min_value=1, step=1)
-                    
-                    f_item3 = f_col3.selectbox("Fulfillment Item 3", pkg_opts)
-                    f_qty3 = f_col3.number_input("Qty 3", min_value=1, step=1)
+                    default_f_df = pd.DataFrame([{"Fulfillment Material": "None", "Quantity": 1}])
+                    f_edited = st.data_editor(
+                        default_f_df,
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Fulfillment Material": st.column_config.SelectboxColumn("Fulfillment Material", options=pkg_opts, required=True),
+                            "Quantity": st.column_config.NumberColumn("Quantity", min_value=1, step=1, required=True)
+                        }
+                    )
                     
                     st.write("---")
                     if st.form_submit_button("Log Order & Deduct All Stock", type="primary", use_container_width=True):
                         if current_stock < qty_sold:
                             st.error(f"⚠️ Warning: You only have {current_stock} units of {sel_product} in stock. Sale aborted.")
                         else:
-                            # Base Financials
                             gross = qty_sold * unit_price
                             total_cogs = qty_sold * unit_cogs
                             
@@ -413,16 +414,26 @@ if check_password():
                             shortage_flag = False
                             shortage_msg = ""
                             
-                            for item, q in [(f_item1, f_qty1), (f_item2, f_qty2), (f_item3, f_qty3)]:
-                                if item != "None":
-                                    pm_match = packaging[packaging['material_name'] == item].iloc[0]
-                                    pm_id = int(pm_match['id'])
-                                    pm_cost = float(pm_match['cost_per_unit'])
-                                    pm_stock = int(pm_match['remaining_quantity'])
+                            # Aggregate quantities just in case they added the same material on two different rows
+                            f_needs = {}
+                            for _, f_row in f_edited.iterrows():
+                                item = f_row.get("Fulfillment Material")
+                                q = f_row.get("Quantity")
+                                if pd.notna(item) and item != "None" and pd.notna(q):
+                                    q = int(q)
+                                    if q > 0:
+                                        f_needs[item] = f_needs.get(item, 0) + q
+                                        
+                            for item, q in f_needs.items():
+                                pm_match = packaging[packaging['material_name'] == item]
+                                if not pm_match.empty:
+                                    pm_id = int(pm_match.iloc[0]['id'])
+                                    pm_cost = float(pm_match.iloc[0]['cost_per_unit'])
+                                    pm_stock = int(pm_match.iloc[0]['remaining_quantity'])
                                     
                                     if pm_stock < q:
                                         shortage_flag = True
-                                        shortage_msg = f"Not enough {item} in packaging vault (Have: {pm_stock}, Need: {q})."
+                                        shortage_msg = f"Not enough '{item}' in Packaging Vault (Have: {pm_stock}, Need: {q})."
                                         break
                                         
                                     fulfillment_cost += (pm_cost * q)
@@ -431,7 +442,6 @@ if check_password():
                             if shortage_flag:
                                 st.error(f"⚠️ {shortage_msg} Sale aborted.")
                             else:
-                                # Apply fulfillment cost to total COGS
                                 total_cogs += fulfillment_cost
                                 net = gross - total_cogs
                                 gm = (net / gross) if gross > 0 else 0.0
