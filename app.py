@@ -14,12 +14,11 @@ try:
 except FileNotFoundError:
     st.set_page_config(page_title="Therapeutic Oils | Lab Portal", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. CUSTOM CSS FOR PREMIUM UI ---
+# --- 2. CUSTOM CSS ---
 def inject_custom_css():
     st.markdown("""
         <style>
-        #MainMenu {visibility: hidden;} footer {visibility: hidden;} 
-        header {background-color: transparent !important;}
+        #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {background-color: transparent !important;}
         .stApp { background-color: #FAFAFA; font-family: 'Inter', -apple-system, sans-serif; }
         [data-testid="stMetricValue"] { font-size: 2.2rem; font-weight: 300; color: #1E293B; letter-spacing: -0.02em; }
         [data-testid="stMetricLabel"] { font-size: 0.85rem; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -36,10 +35,8 @@ def inject_custom_css():
 @st.cache_resource
 def init_connection():
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
-
 supabase = init_connection()
 
-# --- Robust Data Fetching ---
 def fetch_vault_data(table_name, sort_column=None):
     for attempt in range(3): 
         try:
@@ -48,12 +45,11 @@ def fetch_vault_data(table_name, sort_column=None):
             if not df.empty and sort_column and sort_column in df.columns:
                 df = df.sort_values(sort_column)
             return df
-        except Exception:
-            time.sleep(0.5) 
-    st.error(f"⚠️ Network timeout while accessing the {table_name} vault. Please refresh the page.")
+        except Exception: time.sleep(0.5) 
+    st.error(f"⚠️ Network timeout accessing {table_name}. Please refresh.")
     st.stop()
 
-# --- PDF Generation Engines ---
+# --- PDF Engines ---
 def generate_order_pdf(order_ref, items_df, client_name, date_str):
     pdf = FPDF()
     pdf.add_page()
@@ -76,14 +72,11 @@ def generate_order_pdf(order_ref, items_df, client_name, date_str):
     pdf.set_font("Arial", "", 10)
     grand_total = 0.0
     for _, row in items_df.iterrows():
-        desc = str(row['order_description'])[:45]
-        qty = str(row['quantity'])
-        price = float(row['unit_price'])
         total = float(row['gross_revenue'])
         grand_total += total
-        pdf.cell(90, 8, desc, border=1)
-        pdf.cell(25, 8, qty, border=1, align="C")
-        pdf.cell(35, 8, f"${price:,.2f}", border=1, align="R")
+        pdf.cell(90, 8, str(row['order_description'])[:45], border=1)
+        pdf.cell(25, 8, str(row['quantity']), border=1, align="C")
+        pdf.cell(35, 8, f"${float(row['unit_price']):,.2f}", border=1, align="R")
         pdf.cell(40, 8, f"${total:,.2f}", border=1, align="R")
         pdf.ln()
     pdf.set_font("Arial", "B", 10)
@@ -111,22 +104,19 @@ def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
     pdf.cell(20, 8, "Qty Sent", border=1, align="C")
     pdf.cell(30, 8, "Retail Price", border=1, align="R")
     pdf.cell(30, 8, "Owed to Maker", border=1, align="R")
-    pdf.cell(35, 8, "Max Potential Owed", border=1, align="R")
+    pdf.cell(35, 8, "Max Potential", border=1, align="R")
     pdf.ln()
     
     pdf.set_font("Arial", "", 9)
     grand_total_owed = 0.0
     for _, row in items_df.iterrows():
-        desc = str(row['product_name'])[:35]
-        qty = str(row['qty_consigned'])
-        retail = float(row['retail_price'])
         wholesale = float(row['wholesale_price'])
         total_owed = float(row['qty_consigned'] * wholesale)
         grand_total_owed += total_owed
         
-        pdf.cell(75, 8, desc, border=1)
-        pdf.cell(20, 8, qty, border=1, align="C")
-        pdf.cell(30, 8, f"${retail:,.2f}", border=1, align="R")
+        pdf.cell(75, 8, str(row['product_name'])[:35], border=1)
+        pdf.cell(20, 8, str(row['qty_consigned']), border=1, align="C")
+        pdf.cell(30, 8, f"${float(row['retail_price']):,.2f}", border=1, align="R")
         pdf.cell(30, 8, f"${wholesale:,.2f}", border=1, align="R")
         pdf.cell(35, 8, f"${total_owed:,.2f}", border=1, align="R")
         pdf.ln()
@@ -211,6 +201,53 @@ def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed
     pdf.set_font("Arial", "B", 11)
     pdf.cell(140, 8, "TOTAL LIABILITIES & EQUITY:")
     pdf.cell(0, 8, f"${(total_liab + equity):,.2f}", ln=True, align="R")
+    return pdf.output(dest="S").encode("latin-1")
+
+def generate_batch_labels_pdf(product_name, batch_number, lot_number, date_str, copies=6):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, "THERAPEUTIC OILS - GMP BATCH LABELS", ln=True, align="C")
+    pdf.ln(5)
+
+    # Label dimensions (A4 page is 210 x 297 mm)
+    label_w = 90
+    label_h = 45
+    margin_x = 10
+    margin_y = 30
+    spacing_x = 10
+    spacing_y = 10
+
+    for i in range(copies):
+        row = i // 2
+        col = i % 2
+        x = margin_x + col * (label_w + spacing_x)
+        y = margin_y + row * (label_h + spacing_y)
+
+        # Draw outer box boundary for the physical label
+        pdf.rect(x, y, label_w, label_h)
+        
+        # Content formatting inside the box
+        pdf.set_xy(x, y + 5)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(label_w, 6, "THERAPEUTIC OILS", ln=True, align="C")
+        
+        pdf.set_xy(x, y + 13)
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(label_w, 5, product_name[:35], ln=True, align="C")
+        
+        pdf.set_xy(x + 5, y + 22)
+        pdf.set_font("Arial", "", 9)
+        pdf.cell(label_w - 10, 5, f"BATCH: {batch_number}", ln=True)
+        pdf.set_x(x + 5)
+        pdf.cell(label_w - 10, 5, f"LOT: {lot_number}", ln=True)
+        pdf.set_x(x + 5)
+        pdf.cell(label_w - 10, 5, f"MFG DATE: {date_str}", ln=True)
+        
+        pdf.set_xy(x, y + label_h - 7)
+        pdf.set_font("Arial", "I", 7)
+        pdf.cell(label_w, 4, "Store in a cool, dark environment. Follow standard SOP.", ln=True, align="C")
+
     return pdf.output(dest="S").encode("latin-1")
 
 # --- Authentication Logic ---
@@ -832,7 +869,7 @@ if check_password():
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 7. FORMULA HUB ---
+    # --- 7. FORMULA HUB / R&D ---
     elif menu == "Formula Hub":
         st.title("The Formula Hub")
         st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
@@ -1190,13 +1227,52 @@ if check_password():
                             else: st.error("Incorrect passcode.")
         else: st.info("No COGS profiles saved in the vault.")
 
-    # --- 9. PRODUCTION LOGS ---
+    # --- 9. PRODUCTION LOGS (WITH LABELS) ---
     elif menu == "Production Logs":
         st.title("Production Logs")
-        st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records & Physical Batch Labels.</p>", unsafe_allow_html=True)
+        
         logs = supabase.table('production_records').select("*").order("created_at", desc=True).execute()
         if logs.data:
-            df = pd.DataFrame(logs.data); df['Date'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+            df = pd.DataFrame(logs.data)
+            df['Date'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+            
+            # Label Generator Integration
+            disp_logs = df.copy()
+            disp_logs.insert(0, '🏷️', False)
+            
+            st.write("💡 *Check the box next to any batch to generate its GMP physical labels.*")
             with st.container(border=True):
-                st.dataframe(df[['Date', 'batch_number', 'lot_number', 'formula_name', 'batch_size_g', 'total_cost']], use_container_width=True, hide_index=True)
-        else: st.info("No records found in the vault.")
+                edited_logs = st.data_editor(
+                    disp_logs[['🏷️', 'id', 'Date', 'batch_number', 'lot_number', 'formula_name', 'batch_size_g', 'total_cost']], 
+                    use_container_width=True, hide_index=True, 
+                    disabled=['id', 'Date', 'batch_number', 'lot_number', 'formula_name', 'batch_size_g', 'total_cost'], 
+                    column_config={"id": None}
+                )
+            
+            sel_logs = edited_logs[edited_logs['🏷️'] == True]
+            if not sel_logs.empty:
+                s_log = df[df['id'] == sel_logs.iloc[0]['id']].iloc[0]
+                
+                st.write("##")
+                with st.container(border=True):
+                    st.markdown(f"#### 🖨️ Label Generator: {s_log['batch_number']}")
+                    st.write(f"**Formula:** {s_log['formula_name']} | **Lot:** {s_log['lot_number']} | **Size:** {s_log['batch_size_g']}g")
+                    
+                    pdf_bytes = generate_batch_labels_pdf(
+                        s_log['formula_name'], 
+                        s_log['batch_number'], 
+                        s_log['lot_number'], 
+                        pd.to_datetime(s_log['created_at']).strftime('%Y-%m-%d')
+                    )
+                    
+                    st.download_button(
+                        label="📄 Download GMP Batch Label Sheet (PDF)", 
+                        data=pdf_bytes, 
+                        file_name=f"Labels_{s_log['batch_number']}.pdf", 
+                        mime="application/pdf", 
+                        use_container_width=True,
+                        type="primary"
+                    )
+        else: 
+            st.info("No records found in the vault.")
