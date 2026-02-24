@@ -485,7 +485,7 @@ if check_password():
             col1.metric("Unsold Units on Partner Shelves", f"{total_active_units:,}")
             col2.metric("Total Potential Payout Revenue", f"${total_potential_rev:,.2f}")
             
-            st.write("---")
+           st.write("---")
             st.markdown("#### Active Consignment Ledgers")
             
             display_cons = consignment_df.copy().sort_values('created_at', ascending=False)
@@ -495,9 +495,18 @@ if check_password():
             
             with st.container(border=True):
                 edited_cons = st.data_editor(
-                    display_cons[['🔍', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']], 
-                    use_container_width=True, hide_index=True, disabled=['Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']
+                    # WE ADDED 'id' to the list of columns here:
+                    display_cons[['🔍', 'id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']], 
+                    use_container_width=True, hide_index=True, 
+                    disabled=['id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status'],
+                    column_config={
+                        "id": None # This strictly hides the ID from your view so the table stays clean!
+                    }
                 )
+
+            selected_cons = edited_cons[edited_cons['🔍'] == True]
+            if not selected_cons.empty:
+                sel_id = selected_cons.iloc[0]['id']
 
             selected_cons = edited_cons[edited_cons['🔍'] == True]
             if not selected_cons.empty:
