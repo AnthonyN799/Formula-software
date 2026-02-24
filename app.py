@@ -751,13 +751,18 @@ if check_password():
                     c2.write(f"**Total Stock:** {mat['quantity_kg']} Kg<br>**Price:** ${mat['price_per_kg']}/Kg", unsafe_allow_html=True)
                     c3.write(f"**Shelf Value:** ${(mat['price_per_kg'] * mat['quantity_kg']):.2f}")
                     
-                    # --- NEW LOT TRACKING SECTION ---
+                   # --- NEW LOT TRACKING SECTION ---
                     st.write("---")
                     st.markdown("#### 📦 Lot Tracking Ledgers")
                     
                     lots = mat.get('lots', [])
+                    
+                    # Safely handle empty/null lots without crashing Pandas
+                    if isinstance(lots, float): lots = []
+                    elif isinstance(lots, str) and lots in ["", "nan", "[]"]: lots = []
+                    
                     # Auto-generate a default lot if none exist
-                    if pd.isna(lots) or lots is None or lots == "" or str(lots) == "nan" or str(lots) == "[]" or not lots:
+                    if not lots:
                         today_str = datetime.today().strftime('%Y-%m-%d')
                         exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
                         lots = [{
