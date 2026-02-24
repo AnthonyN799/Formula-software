@@ -272,7 +272,16 @@ def check_password():
 if check_password():
     inject_custom_css()
     
-    # --- MODULAR SIDEBAR DESIGN ---
+    # --- MODULAR PROGRAMMATIC SIDEBAR DESIGN ---
+    MODULES = {
+        "📊 Finance & Sales": ["Sales & Revenue", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
+        "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
+        "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"]
+    }
+    
+    if "active_module" not in st.session_state: st.session_state.active_module = "📊 Finance & Sales"
+    if "active_nav" not in st.session_state: st.session_state.active_nav = "Sales & Revenue"
+
     with st.sidebar:
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
@@ -280,22 +289,29 @@ if check_password():
         st.write("##")
         st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Business Module</p>", unsafe_allow_html=True)
         
-        system_module = st.selectbox(
-            "Module", 
-            ["📊 Finance & Sales", "📦 Inventory Management", "⚗️ R&D & Production"], 
-            label_visibility="collapsed"
-        )
-        
+        selected_module = st.selectbox("Module", list(MODULES.keys()), index=list(MODULES.keys()).index(st.session_state.active_module), label_visibility="collapsed")
+        if selected_module != st.session_state.active_module:
+            st.session_state.active_module = selected_module
+            st.session_state.active_nav = MODULES[selected_module][0]
+            st.rerun()
+
         st.write("---")
         st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Navigation</p>", unsafe_allow_html=True)
         
-        if system_module == "📊 Finance & Sales":
-            menu = st.radio("Nav", ["Sales & Revenue", "Consignment Tracker", "Financial Overview", "Balance Sheet"], label_visibility="collapsed")
-        elif system_module == "📦 Inventory Management":
-            menu = st.radio("Nav", ["Raw Material Library", "Packaging Library", "Finished Products"], label_visibility="collapsed")
-        else:
-            menu = st.radio("Nav", ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"], label_visibility="collapsed")
+        nav_opts = MODULES[st.session_state.active_module]
+        if st.session_state.active_nav not in nav_opts:
+            for mod, navs in MODULES.items():
+                if st.session_state.active_nav in navs:
+                    st.session_state.active_module = mod
+                    st.rerun()
+                    
+        selected_nav = st.radio("Nav", nav_opts, index=nav_opts.index(st.session_state.active_nav) if st.session_state.active_nav in nav_opts else 0, label_visibility="collapsed")
+        
+        if selected_nav != st.session_state.active_nav:
+            st.session_state.active_nav = selected_nav
+            st.rerun()
             
+        menu = st.session_state.active_nav
         st.write("<br><br>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.rerun()
 
@@ -848,7 +864,7 @@ if check_password():
         st.write("---")
         with st.expander("➕ Register New Packaging"):
             with st.form("add_packaging", clear_on_submit=True):
-                c1, c2 = st.columns(2); p_n = c1.text_input("Material Name"); p_s = c1.text_input("Supplier"); p_c = c2.number_input("Cost/Unit ($)", min_value=0.0); p_q = c2.number_input("Initial Qty", min_value=0.0)
+                c1, c2 = st.columns(2); p_n = c1.text_input("Material Name"); p_s = c1.text_input("Supplier"); p_c = c2.number_input("Cost/Unit ($)", min_value=0.0); p_q = c2.number_input("Initial Qty", min_value=0, step=1)
                 st.markdown("**Initial Lot Details**")
                 l1, l2 = st.columns(2)
                 new_lot = l1.text_input("Lot Number", "L-01")
@@ -1022,20 +1038,21 @@ if check_password():
                             else: st.error("Cannot produce: Material Shortage detected.")
                     
                     st.divider()
-                    c_act1, c_act2, c_act3 = st.columns(3)
+                    c_act1, c_act2, c_act3, c_act4 = st.columns(4)
                     with c_act1:
-                        with st.expander("✏️ Edit Current Edition"):
-                            if st.button("Edit This Version", use_container_width=True):
+                        with st.expander("✏️ Edit Current"):
+                            if st.button("Edit Edition", use_container_width=True):
                                 st.session_state.builder = pd.DataFrame(recipe_items)
                                 st.session_state.draft_name = sel_f['formula_name']
                                 st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
                                 st.session_state.edit_formula_id = int(sel_f['id'])
                                 st.session_state.edit_fr_code = sel_f['fr_code']
                                 if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
-                                st.success("Loaded! Click 'Formula Builder' in the sidebar.")
+                                st.session_state.active_nav = "Formula Builder"
+                                st.rerun()
                     with c_act2:
-                        with st.expander("🔄 Create New Edition"):
-                            if st.button("Draft New Version", use_container_width=True):
+                        with st.expander("🔄 New Edition"):
+                            if st.button("Draft Version", use_container_width=True):
                                 st.session_state.builder = pd.DataFrame(recipe_items)
                                 match = re.search(r' V(\d+)$', sel_f['formula_name'])
                                 if match:
@@ -1047,9 +1064,20 @@ if check_password():
                                 st.session_state.base_fr_code = sel_f['fr_code']
                                 st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
                                 if "edit_formula_id" in st.session_state: del st.session_state["edit_formula_id"]
-                                st.success("Loaded! Click 'Formula Builder' in the sidebar.")
+                                st.session_state.active_nav = "Formula Builder"
+                                st.rerun()
                     with c_act3:
-                        with st.expander("🗑️ Erase Formula"):
+                        with st.expander("📋 Duplicate"):
+                            if st.button("Copy to New Base", use_container_width=True):
+                                st.session_state.builder = pd.DataFrame(recipe_items)
+                                st.session_state.draft_name = f"{sel_f['formula_name']} (Copy)"
+                                st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
+                                for k in ["edit_formula_id", "edit_fr_code", "base_fr_code"]:
+                                    if k in st.session_state: del st.session_state[k]
+                                st.session_state.active_nav = "Formula Builder"
+                                st.rerun()
+                    with c_act4:
+                        with st.expander("🗑️ Erase"):
                             del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
                             if st.button("Permanently Delete", use_container_width=True) and del_f_pass == "lab2026":
                                 supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); st.rerun()
@@ -1301,7 +1329,7 @@ if check_password():
                             else: st.error("Incorrect passcode.")
         else: st.info("No COGS profiles saved in the vault.")
 
-    # --- 9. PRODUCTION LOGS (WITH LABELS) ---
+    # --- 9. PRODUCTION LOGS ---
     elif menu == "Production Logs":
         st.title("Production Logs")
         st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records & Physical Batch Labels.</p>", unsafe_allow_html=True)
@@ -1311,7 +1339,6 @@ if check_password():
             df = pd.DataFrame(logs.data)
             df['Date'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
             
-            # Label Generator Integration
             disp_logs = df.copy()
             disp_logs.insert(0, '🏷️', False)
             
