@@ -294,7 +294,6 @@ if check_password():
         elif system_module == "📦 Inventory Management":
             menu = st.radio("Nav", ["Raw Material Library", "Packaging Library", "Finished Products"], label_visibility="collapsed")
         else:
-            # THIS IS THE REQUESTED SPLIT IN THE SIDEBAR!
             menu = st.radio("Nav", ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"], label_visibility="collapsed")
             
         st.write("<br><br>", unsafe_allow_html=True)
@@ -730,17 +729,16 @@ if check_password():
     # --- 4. RAW MATERIAL LIBRARY ---
     elif menu == "Raw Material Library":
         st.title("Raw Material Library")
-        st.markdown("<p style='color: #64748B;'>Manage essential oils, carriers, and active ingredients. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>Manage essential oils, carriers, and active ingredients.</p>", unsafe_allow_html=True)
         if not inventory.empty:
             display_inv = inventory.copy(); display_inv['Cost/g ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format); display_inv.insert(0, '🔍', False) 
             with st.container(border=True):
-                # Disabled quantity_kg so it is strictly driven by the sum of lots
-                edited_inv = st.data_editor(display_inv[['🔍', 'rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']], use_container_width=True, hide_index=True, disabled=['rm_code', 'Cost/g ($)', 'quantity_kg'])
+                edited_inv = st.data_editor(display_inv[['🔍', 'rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']], use_container_width=True, hide_index=True, disabled=['rm_code', 'Cost/g ($)'])
                 if st.button("💾 Synchronize Vault"):
                     for idx, row in edited_inv.iterrows():
                         orig = inventory.loc[idx]
-                        if row['trade_name'] != orig['trade_name'] or row['inci_name'] != orig['inci_name'] or row['price_per_kg'] != orig['price_per_kg']:
-                            supabase.table('inventory').update({"trade_name": row['trade_name'], "inci_name": row['inci_name'], "price_per_kg": row['price_per_kg']}).eq('id', int(orig['id'])).execute()
+                        if row['trade_name'] != orig['trade_name'] or row['inci_name'] != orig['inci_name'] or row['price_per_kg'] != orig['price_per_kg'] or row['quantity_kg'] != orig['quantity_kg']:
+                            supabase.table('inventory').update({"trade_name": row['trade_name'], "inci_name": row['inci_name'], "price_per_kg": row['price_per_kg'], "quantity_kg": row['quantity_kg']}).eq('id', int(orig['id'])).execute()
                     st.rerun()
             selected_mats = edited_inv[edited_inv['🔍'] == True]
             if not selected_mats.empty:
@@ -749,66 +747,8 @@ if check_password():
                     st.markdown(f"#### {mat['trade_name']}")
                     c1, c2, c3 = st.columns(3)
                     c1.write(f"**Code:** {mat['rm_code']}<br>**INCI:** {mat['inci_name']}", unsafe_allow_html=True)
-                    c2.write(f"**Total Stock:** {mat['quantity_kg']} Kg<br>**Price:** ${mat['price_per_kg']}/Kg", unsafe_allow_html=True)
+                    c2.write(f"**Stock:** {mat['quantity_kg']} Kg<br>**Price:** ${mat['price_per_kg']}/Kg", unsafe_allow_html=True)
                     c3.write(f"**Shelf Value:** ${(mat['price_per_kg'] * mat['quantity_kg']):.2f}")
-                    
-                    # --- NEW LOT TRACKING SECTION ---
-                    st.write("---")
-                    st.markdown("#### 📦 Lot Tracking Ledgers")
-                    
-                    lots = mat.get('lots', [])
-                    
-                    # Safely handle empty/null lots without crashing Pandas
-                    if isinstance(lots, float): lots = []
-                    elif isinstance(lots, str) and lots in ["", "nan", "[]"]: lots = []
-                    
-                    # Auto-generate a default lot if none exist
-                    if not lots:
-                        today_str = datetime.today().strftime('%Y-%m-%d')
-                        exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
-                        lots = [{
-                            "Lot Number": f"{mat['rm_code']}-L01",
-                            "Mfg Date": today_str,
-                            "Rcv Date": today_str,
-                            "Exp Date": exp_str,
-                            "Qty (Kg)": float(mat['quantity_kg']),
-                            "Current": True
-                        }]
-                    
-                    lots_df = pd.DataFrame(lots)
-                    
-                    with st.form(f"lots_form_{mat['id']}"):
-                        st.info("💡 Edit quantities, add new lots, and mark exactly ONE lot as 'Current Lot'. Total Stock will auto-update.")
-                        ed_lots = st.data_editor(
-                            lots_df,
-                            num_rows="dynamic",
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                "Current": st.column_config.CheckboxColumn("Current Lot", default=False),
-                                "Mfg Date": st.column_config.TextColumn("Mfg Date (YYYY-MM-DD)"),
-                                "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"),
-                                "Exp Date": st.column_config.TextColumn("Exp Date (YYYY-MM-DD)"),
-                                "Qty (Kg)": st.column_config.NumberColumn("Qty (Kg)", format="%.3f")
-                            }
-                        )
-                        if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
-                            current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
-                            if current_count > 1:
-                                st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
-                            else:
-                                new_lots_json = ed_lots.to_dict(orient='records')
-                                new_total_kg = ed_lots['Qty (Kg)'].sum() if 'Qty (Kg)' in ed_lots.columns else 0.0
-                                
-                                supabase.table('inventory').update({
-                                    "lots": new_lots_json,
-                                    "quantity_kg": float(new_total_kg)
-                                }).eq('id', int(mat['id'])).execute()
-                                st.success("Lots updated successfully! Total Stock recalculated.")
-                                time.sleep(1.5)
-                                st.rerun()
-                    # --- END LOT TRACKING SECTION ---
-
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
                         if st.button("Erase Record") and del_pass == "lab2026":
@@ -817,142 +757,40 @@ if check_password():
         with st.expander("➕ Register New Material"):
             with st.form("add_material", clear_on_submit=True):
                 c1, c2 = st.columns(2); new_t = c1.text_input("Trade Name"); new_i = c1.text_input("INCI Name"); new_p = c2.number_input("Price/Kg ($)", min_value=0.0); new_q = c2.number_input("Initial Qty (Kg)", min_value=0.0)
-                
-                st.markdown("**Initial Lot Details**")
-                l1, l2, l3, l4 = st.columns(4)
-                new_lot = l1.text_input("Lot Number", "L-01")
-                new_mfg = l2.date_input("Mfg Date")
-                new_rcv = l3.date_input("Rcv Date")
-                new_exp = l4.date_input("Exp Date", value=datetime.today() + pd.DateOffset(years=2))
-
                 if st.form_submit_button("Register") and new_t != "":
                     next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
-                    rm_code = f"RM{next_id:05d}"
-                    
-                    init_lot = [{
-                        "Lot Number": new_lot,
-                        "Mfg Date": new_mfg.strftime('%Y-%m-%d'),
-                        "Rcv Date": new_rcv.strftime('%Y-%m-%d'),
-                        "Exp Date": new_exp.strftime('%Y-%m-%d'),
-                        "Qty (Kg)": float(new_q),
-                        "Current": True
-                    }]
-                    
-                    supabase.table('inventory').insert({
-                        "rm_code": rm_code, 
-                        "trade_name": new_t, 
-                        "inci_name": new_i, 
-                        "price_per_kg": new_p, 
-                        "quantity_kg": new_q, 
-                        "lots": init_lot
-                    }).execute(); st.rerun()
+                    supabase.table('inventory').insert({"rm_code": f"RM{next_id:05d}", "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q}).execute(); st.rerun()
 
     # --- 5. PACKAGING LIBRARY ---
     elif menu == "Packaging Library":
         st.title("Packaging Library")
-        st.markdown("<p style='color: #64748B;'>Track bottles, droppers, caps, and labels. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>Track bottles, droppers, caps, and labels.</p>", unsafe_allow_html=True)
         if not packaging.empty:
             display_pk = packaging.copy(); display_pk.insert(0, '🔍', False)
             with st.container(border=True):
-                # Disabled remaining_quantity so it is strictly driven by the sum of lots
-                edited_pk = st.data_editor(display_pk[['🔍', 'pm_code', 'material_name', 'supplier', 'cost_per_unit', 'remaining_quantity']], use_container_width=True, hide_index=True, disabled=['pm_code', 'remaining_quantity'])
+                edited_pk = st.data_editor(display_pk[['🔍', 'pm_code', 'material_name', 'supplier', 'cost_per_unit', 'remaining_quantity']], use_container_width=True, hide_index=True, disabled=['pm_code'])
                 if st.button("💾 Synchronize Vault"):
                     for idx, row in edited_pk.iterrows():
                         orig = packaging.loc[idx]
-                        if row['material_name'] != orig['material_name'] or row['supplier'] != orig['supplier'] or row['cost_per_unit'] != orig['cost_per_unit']:
-                            supabase.table('packaging').update({"material_name": row['material_name'], "supplier": row['supplier'], "cost_per_unit": row['cost_per_unit']}).eq('id', int(orig['id'])).execute()
+                        if row['material_name'] != orig['material_name'] or row['supplier'] != orig['supplier'] or row['cost_per_unit'] != orig['cost_per_unit'] or row['remaining_quantity'] != orig['remaining_quantity']:
+                            supabase.table('packaging').update({"material_name": row['material_name'], "supplier": row['supplier'], "cost_per_unit": row['cost_per_unit'], "remaining_quantity": row['remaining_quantity']}).eq('id', int(orig['id'])).execute()
                     st.rerun()
             selected_pk = edited_pk[edited_pk['🔍'] == True]
             if not selected_pk.empty:
                 p_mat = packaging.loc[selected_pk.index[0]]; st.write("##")
                 with st.container(border=True):
                     st.markdown(f"#### {p_mat['material_name']}")
-                    st.write(f"**Code:** {p_mat['pm_code']} | **Supplier:** {p_mat['supplier']} | **Total Stock:** {p_mat['remaining_quantity']} Units")
-                    
-                    # --- NEW LOT TRACKING SECTION ---
-                    st.write("---")
-                    st.markdown("#### 📦 Lot Tracking Ledgers")
-                    
-                    lots = p_mat.get('lots', [])
-                    
-                    # Safely handle empty/null lots without crashing Pandas
-                    if isinstance(lots, float): lots = []
-                    elif isinstance(lots, str) and lots in ["", "nan", "[]"]: lots = []
-                    
-                    # Auto-generate a default lot if none exist
-                    if not lots:
-                        today_str = datetime.today().strftime('%Y-%m-%d')
-                        lots = [{
-                            "Lot Number": f"{p_mat['pm_code']}-L01",
-                            "Rcv Date": today_str,
-                            "Qty (Units)": int(p_mat['remaining_quantity']),
-                            "Current": True
-                        }]
-                    
-                    lots_df = pd.DataFrame(lots)
-                    
-                    with st.form(f"pk_lots_form_{p_mat['id']}"):
-                        st.info("💡 Edit quantities, add new lots, and mark exactly ONE lot as 'Current Lot'. Total Stock will auto-update.")
-                        ed_lots = st.data_editor(
-                            lots_df,
-                            num_rows="dynamic",
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                "Current": st.column_config.CheckboxColumn("Current Lot", default=False),
-                                "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"),
-                                "Qty (Units)": st.column_config.NumberColumn("Qty (Units)", step=1)
-                            }
-                        )
-                        if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
-                            current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
-                            if current_count > 1:
-                                st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
-                            else:
-                                new_lots_json = ed_lots.to_dict(orient='records')
-                                new_total_qty = ed_lots['Qty (Units)'].sum() if 'Qty (Units)' in ed_lots.columns else 0
-                                
-                                supabase.table('packaging').update({
-                                    "lots": new_lots_json,
-                                    "remaining_quantity": int(new_total_qty)
-                                }).eq('id', int(p_mat['id'])).execute()
-                                st.success("Lots updated successfully! Total Stock recalculated.")
-                                time.sleep(1.5)
-                                st.rerun()
-                    # --- END LOT TRACKING SECTION ---
-
+                    st.write(f"**Code:** {p_mat['pm_code']} | **Supplier:** {p_mat['supplier']} | **Stock:** {p_mat['remaining_quantity']} Units")
                     with st.expander("System Actions"):
                         if st.button("Erase Record") and st.text_input("Authorization", type="password", key="dpp") == "lab2026":
                             supabase.table('packaging').delete().eq('id', int(p_mat['id'])).execute(); st.rerun()
         st.write("---")
         with st.expander("➕ Register New Packaging"):
             with st.form("add_packaging", clear_on_submit=True):
-                c1, c2 = st.columns(2); p_n = c1.text_input("Material Name"); p_s = c1.text_input("Supplier"); p_c = c2.number_input("Cost/Unit ($)", min_value=0.0); p_q = c2.number_input("Initial Qty", min_value=0, step=1)
-                
-                st.markdown("**Initial Lot Details**")
-                l1, l2 = st.columns(2)
-                new_lot = l1.text_input("Lot Number", "L-01")
-                new_rcv = l2.date_input("Rcv Date")
-
+                c1, c2 = st.columns(2); p_n = c1.text_input("Material Name"); p_s = c1.text_input("Supplier"); p_c = c2.number_input("Cost/Unit ($)", min_value=0.0); p_q = c2.number_input("Initial Qty", min_value=0.0)
                 if st.form_submit_button("Register") and p_n != "":
                     next_pm = 1 if packaging.empty else int(packaging['id'].max()) + 1
-                    pm_code = f"PM{next_pm:05d}"
-                    
-                    init_lot = [{
-                        "Lot Number": new_lot,
-                        "Rcv Date": new_rcv.strftime('%Y-%m-%d'),
-                        "Qty (Units)": int(p_q),
-                        "Current": True
-                    }]
-
-                    supabase.table('packaging').insert({
-                        "pm_code": pm_code, 
-                        "material_name": p_n, 
-                        "supplier": p_s, 
-                        "cost_per_unit": p_c, 
-                        "remaining_quantity": p_q,
-                        "lots": init_lot
-                    }).execute(); st.rerun()
+                    supabase.table('packaging').insert({"pm_code": f"PM{next_pm:05d}", "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q}).execute(); st.rerun()
 
     # --- 6. FINISHED PRODUCTS LIBRARY ---
     elif menu == "Finished Products":
@@ -1082,16 +920,17 @@ if check_password():
                         m = inventory[inventory['trade_name'] == ing]
                         if not m.empty:
                             s_kg = float(m['quantity_kg'].values[0]); p_kg = float(m['price_per_kg'].values[0])
+                            rm_c = str(m['rm_code'].values[0])
                             if s_kg < (req_g/1000): stock_ok = False
                             cost = (req_g/1000)*p_kg; total_cost += cost
-                            calc_data.append({"Phase": phase, "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "✅ Available" if s_kg >= (req_g/1000) else "❌ Shortage", "Est. Cost": f"${cost:.4f}", "req_kg": req_g/1000, "stock_kg": s_kg})
+                            calc_data.append({"Phase": phase, "RM Code": rm_c, "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "✅ Available" if s_kg >= (req_g/1000) else "❌ Shortage", "Est. Cost": f"${cost:.4f}", "req_kg": req_g/1000, "stock_kg": s_kg})
                         else:
                             stock_ok = False
-                            calc_data.append({"Phase": phase, "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "⚠️ Not in Vault", "Est. Cost": "$0.00", "req_kg": 0, "stock_kg": 0})
+                            calc_data.append({"Phase": phase, "RM Code": "N/A", "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "⚠️ Not in Vault", "Est. Cost": "$0.00", "req_kg": 0, "stock_kg": 0})
                     
                     calc_df = pd.DataFrame(calc_data)
                     if not calc_df.empty:
-                        st.dataframe(calc_df.sort_values(by="Phase")[['Phase', 'Material', 'Formula %', 'Needed (g)', 'Stock Status', 'Est. Cost']], use_container_width=True, hide_index=True)
+                        st.dataframe(calc_df.sort_values(by="Phase")[['Phase', 'RM Code', 'Material', 'Formula %', 'Needed (g)', 'Stock Status', 'Est. Cost']], use_container_width=True, hide_index=True)
                     
                     st.write("---")
                     st.markdown("#### 📋 Manufacturing Procedure")
@@ -1126,7 +965,7 @@ if check_password():
                                 st.session_state.edit_formula_id = int(sel_f['id'])
                                 st.session_state.edit_fr_code = sel_f['fr_code']
                                 if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
-                                st.success("Loaded! Please open the 'Formula Builder' tab.")
+                                st.success("Loaded! Click 'Formula Builder' in the sidebar.")
                     with c_act2:
                         with st.expander("🔄 Create New Edition"):
                             if st.button("Draft New Version", use_container_width=True):
@@ -1141,7 +980,7 @@ if check_password():
                                 st.session_state.base_fr_code = sel_f['fr_code']
                                 st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
                                 if "edit_formula_id" in st.session_state: del st.session_state["edit_formula_id"]
-                                st.success("Loaded! Please open the 'Formula Builder' tab.")
+                                st.success("Loaded! Click 'Formula Builder' in the sidebar.")
                     with c_act3:
                         with st.expander("🗑️ Erase Formula"):
                             del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
@@ -1204,13 +1043,15 @@ if check_password():
             total_cost_kg = 0.0; live_data = []
             for _, row in edit_df.iterrows():
                 ing = row.get('Ingredient'); perc = row.get('%', 0.0); phase = row.get('Phase', 'A')
-                if ing and pd.notna(ing) and ing in inventory['trade_name'].values:
-                    price = float(inventory[inventory['trade_name'] == ing]['price_per_kg'].values[0])
+                if ing and pd.notna(ing) and ing != "None" and not inventory.empty and ing in inventory['trade_name'].values:
+                    m_row = inventory[inventory['trade_name'] == ing].iloc[0]
+                    price = float(m_row['price_per_kg'])
+                    rm_c = str(m_row['rm_code'])
                     cost_contrib = (perc / 100.0) * price; total_cost_kg += cost_contrib
-                    live_data.append({"Phase": phase, "Material": ing, "Cost": f"${cost_contrib:,.2f}"})
+                    live_data.append({"Phase": phase, "RM Code": rm_c, "Material": ing, "Cost": f"${cost_contrib:,.2f}"})
             
             if live_data: 
-                st.dataframe(pd.DataFrame(live_data).sort_values('Phase'), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(live_data).sort_values('Phase')[['Phase', 'RM Code', 'Material', 'Cost']], use_container_width=True, hide_index=True)
             else: 
                 st.info("Select ingredients to see live costs.")
                 
@@ -1393,7 +1234,7 @@ if check_password():
                             else: st.error("Incorrect passcode.")
         else: st.info("No COGS profiles saved in the vault.")
 
-    # --- 9. PRODUCTION LOGS (WITH LABELS) ---
+    # --- 9. PRODUCTION LOGS ---
     elif menu == "Production Logs":
         st.title("Production Logs")
         st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records & Physical Batch Labels.</p>", unsafe_allow_html=True)
@@ -1403,7 +1244,6 @@ if check_password():
             df = pd.DataFrame(logs.data)
             df['Date'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
             
-            # Label Generator Integration
             disp_logs = df.copy()
             disp_logs.insert(0, '🏷️', False)
             
