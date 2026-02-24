@@ -91,10 +91,69 @@ def generate_order_pdf(order_ref, items_df, client_name, date_str):
     pdf.cell(40, 8, f"${grand_total:,.2f}", border=1, align="R")
     return pdf.output(dest="S").encode("latin-1")
 
+def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, "Official Consignment Agreement", ln=True, align="C")
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(100, 8, f"Consignee (Partner): {partner_name}")
+    pdf.cell(0, 8, f"Date Issued: {date_str}", ln=True, align="R")
+    pdf.cell(0, 8, f"Reference #: {order_ref}", ln=True, align="R")
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(75, 8, "Product Description", border=1)
+    pdf.cell(20, 8, "Qty Sent", border=1, align="C")
+    pdf.cell(30, 8, "Retail Price", border=1, align="R")
+    pdf.cell(30, 8, "Owed to Maker", border=1, align="R")
+    pdf.cell(35, 8, "Max Potential Owed", border=1, align="R")
+    pdf.ln()
+    
+    pdf.set_font("Arial", "", 9)
+    grand_total_owed = 0.0
+    for _, row in items_df.iterrows():
+        desc = str(row['product_name'])[:35]
+        qty = str(row['qty_consigned'])
+        retail = float(row['retail_price'])
+        wholesale = float(row['wholesale_price'])
+        total_owed = float(row['qty_consigned'] * wholesale)
+        grand_total_owed += total_owed
+        
+        pdf.cell(75, 8, desc, border=1)
+        pdf.cell(20, 8, qty, border=1, align="C")
+        pdf.cell(30, 8, f"${retail:,.2f}", border=1, align="R")
+        pdf.cell(30, 8, f"${wholesale:,.2f}", border=1, align="R")
+        pdf.cell(35, 8, f"${total_owed:,.2f}", border=1, align="R")
+        pdf.ln()
+        
+    pdf.ln(5)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(155, 8, "Total Capital Owed Upon 100% Sell-Through:", border=1, align="R")
+    pdf.cell(35, 8, f"${grand_total_owed:,.2f}", border=1, align="R")
+    pdf.ln(15)
+    
+    # Boilerplate terms
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 6, "Terms of Consignment:", ln=True)
+    pdf.set_font("Arial", "", 9)
+    terms = (
+        "1. Title and ownership of all goods listed above remain strictly with Therapeutic Oils until sold to an end consumer.\n"
+        "2. The Consignee agrees to display and store the goods appropriately.\n"
+        "3. The 'Owed to Maker' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
+        "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
+    )
+    pdf.multi_cell(0, 5, terms)
+    
+    return pdf.output(dest="S").encode("latin-1")
+
 def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed_assets, ap, debt, total_assets, total_liab, equity):
     pdf = FPDF()
     pdf.add_page()
-    
     pdf.set_font("Arial", "B", 18)
     pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
     pdf.set_font("Arial", "", 12)
@@ -102,7 +161,6 @@ def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed
     pdf.set_font("Arial", "I", 10)
     pdf.cell(0, 6, f"As of {date_str}", ln=True, align="C")
     pdf.ln(10)
-    
     # ASSETS
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "ASSETS", ln=True, border="B")
@@ -130,7 +188,6 @@ def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed
     pdf.cell(140, 8, "TOTAL ASSETS:")
     pdf.cell(0, 8, f"${total_assets:,.2f}", ln=True, align="R")
     pdf.ln(10)
-    
     # LIABILITIES
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "LIABILITIES & EQUITY", ln=True, border="B")
@@ -146,7 +203,6 @@ def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed
     pdf.cell(140, 6, "Total Liabilities:")
     pdf.cell(0, 6, f"${total_liab:,.2f}", ln=True, align="R")
     pdf.ln(4)
-    
     # EQUITY
     pdf.set_font("Arial", "B", 10)
     pdf.cell(0, 6, "Owner's Equity", ln=True)
@@ -157,7 +213,6 @@ def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed
     pdf.set_font("Arial", "B", 11)
     pdf.cell(140, 8, "TOTAL LIABILITIES & EQUITY:")
     pdf.cell(0, 8, f"${(total_liab + equity):,.2f}", ln=True, align="R")
-    
     return pdf.output(dest="S").encode("latin-1")
 
 # --- Authentication Logic ---
@@ -200,7 +255,7 @@ if check_password():
         st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Navigation</p>", unsafe_allow_html=True)
         
         if system_module == "📊 Finance & Sales":
-            menu = st.radio("Nav", ["Sales & Revenue", "Financial Overview", "Balance Sheet"], label_visibility="collapsed")
+            menu = st.radio("Nav", ["Sales & Revenue", "Consignment Tracker", "Financial Overview", "Balance Sheet"], label_visibility="collapsed")
         elif system_module == "📦 Inventory Management":
             menu = st.radio("Nav", ["Raw Material Library", "Packaging Library", "Finished Products"], label_visibility="collapsed")
         else:
@@ -216,6 +271,7 @@ if check_password():
     formulas_df = fetch_vault_data('formulas')
     cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
     sales_records_df = fetch_vault_data('sales_records', 'sale_date')
+    consignment_df = fetch_vault_data('consignment_records', 'created_at')
 
     # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":
@@ -231,15 +287,12 @@ if check_password():
             selected_year = c_year.selectbox("Fiscal Year", years_available)
             annual_target = c_target.number_input("Annual Revenue Target ($)", value=50000, step=5000)
             
-            # Filter for selected year metrics
             yr_df = sales_records_df[sales_records_df['Year'] == selected_year]
-            
             yr_rev = yr_df['gross_revenue'].sum()
             yr_profit = yr_df['net_profit'].sum()
             yr_units = yr_df['quantity'].sum()
             avg_margin = (yr_profit / yr_rev * 100) if yr_rev > 0 else 0.0
             
-            # GLOBAL Pending Receivables
             global_pending_df = sales_records_df[sales_records_df['status'] == 'Pending'].copy()
             global_pending_rev = global_pending_df['gross_revenue'].sum()
             
@@ -255,34 +308,22 @@ if check_password():
             st.write(f"**Annual Target Progress:** {progress_pct*100:.1f}% (${yr_rev:,.0f} / ${annual_target:,.0f})")
             st.progress(progress_pct)
             
-            # 🚨 AGING RECEIVABLES EXPANDER 🚨
             if not global_pending_df.empty:
                 st.write("")
                 with st.expander(f"⚠️ View Aging Receivables ({len(global_pending_df)} Unpaid Line Items)"):
                     today = pd.Timestamp(datetime.now().date())
                     global_pending_df['Days Pending'] = (today - global_pending_df['sale_date']).dt.days
-                    
                     def format_age(days):
                         if days > 60: return f"🔴 {days} days"
                         elif days > 30: return f"🟠 {days} days"
                         else: return f"🟢 {days} days"
-                    
                     global_pending_df['Aging'] = global_pending_df['Days Pending'].apply(format_age)
                     aging_df = global_pending_df.sort_values(by='Days Pending', ascending=False)
                     aging_df['sale_date'] = aging_df['sale_date'].dt.strftime('%Y-%m-%d')
-                    
-                    st.dataframe(
-                        aging_df[['Aging', 'sale_date', 'account', 'order_ref_number', 'order_description', 'gross_revenue']],
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "gross_revenue": st.column_config.NumberColumn("Amount Due", format="$%.2f")
-                        }
-                    )
+                    st.dataframe(aging_df[['Aging', 'sale_date', 'account', 'order_ref_number', 'order_description', 'gross_revenue']], use_container_width=True, hide_index=True, column_config={"gross_revenue": st.column_config.NumberColumn("Amount Due", format="$%.2f")})
             
             st.write("---")
             st.markdown("#### Transaction Ledger & Order Management")
-            
             display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
             display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
             display_sales.insert(0, '🔍', False)
@@ -293,13 +334,11 @@ if check_password():
                     use_container_width=True, hide_index=True,
                     disabled=['id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel'],
                     column_config={
-                        "id": None, 
-                        "gross_revenue": st.column_config.NumberColumn("Gross Rev", format="$%.2f"),
+                        "id": None, "gross_revenue": st.column_config.NumberColumn("Gross Rev", format="$%.2f"),
                         "net_profit": st.column_config.NumberColumn("Net Profit", format="$%.2f"),
                         "status": st.column_config.SelectboxColumn("Status", options=["Paid", "Pending", "Cancelled"], required=True)
                     }
                 )
-                
                 if st.button("💾 Synchronize Ledger Status", type="primary"):
                     for index, row in edited_sales.iterrows():
                         orig = display_sales.loc[index]
@@ -313,7 +352,6 @@ if check_password():
                 sel_id = selected_sales.iloc[0]['id']
                 sale_item = yr_df[yr_df['id'] == sel_id].iloc[0]
                 ref_num = sale_item['order_ref_number']
-                
                 if pd.notna(ref_num) and str(ref_num).strip() != "":
                     order_items = yr_df[yr_df['order_ref_number'] == ref_num]
                 else:
@@ -323,11 +361,9 @@ if check_password():
                 with st.container(border=True):
                     st.markdown(f"#### 📦 Inspecting Order Reference: {ref_num if pd.notna(ref_num) else 'Unreferenced'}")
                     st.write(f"**Client:** {sale_item['account']} | **Date:** {sale_item['sale_date'].strftime('%Y-%m-%d')}")
-                    
                     st.dataframe(order_items[['order_description', 'quantity', 'unit_price', 'gross_revenue']], hide_index=True, use_container_width=True)
                     order_total = order_items['gross_revenue'].sum()
                     st.metric("Total Order Value", f"${order_total:,.2f}")
-                    
                     col_pdf, col_rev = st.columns(2)
                     with col_pdf:
                         pdf_bytes = generate_order_pdf(str(ref_num), order_items, str(sale_item['account']), sale_item['sale_date'].strftime('%Y-%m-%d'))
@@ -352,15 +388,11 @@ if check_password():
         else:
             st.info("No sales records imported or logged yet.")
 
-        # LOG NEW SALE FORM (UPGRADED WITH DYNAMIC FULFILLMENT MATERIALS)
         st.write("---")
         with st.expander("➕ Log New Sales Order", expanded=False):
             if not finished_goods.empty:
-                
-                # Fetch packaging options for fulfillment
                 pkg_opts = ["None"]
-                if not packaging.empty:
-                    pkg_opts += packaging['material_name'].tolist()
+                if not packaging.empty: pkg_opts += packaging['material_name'].tolist()
 
                 with st.form("add_sale", clear_on_submit=True):
                     st.markdown("#### 1. Core Order Details")
@@ -386,19 +418,8 @@ if check_password():
                     
                     st.write("---")
                     st.markdown("#### 2. Shipping & Fulfillment Materials")
-                    st.markdown("<p style='color: #64748B; font-size: 0.85rem;'>Select boxes, inserts, or stickers used for this specific order. You can add as many rows as needed.</p>", unsafe_allow_html=True)
-                    
                     default_f_df = pd.DataFrame([{"Fulfillment Material": "None", "Quantity": 1}])
-                    f_edited = st.data_editor(
-                        default_f_df,
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "Fulfillment Material": st.column_config.SelectboxColumn("Fulfillment Material", options=pkg_opts, required=True),
-                            "Quantity": st.column_config.NumberColumn("Quantity", min_value=1, step=1, required=True)
-                        }
-                    )
+                    f_edited = st.data_editor(default_f_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Fulfillment Material": st.column_config.SelectboxColumn("Fulfillment Material", options=pkg_opts, required=True), "Quantity": st.column_config.NumberColumn("Quantity", min_value=1, step=1, required=True)})
                     
                     st.write("---")
                     if st.form_submit_button("Log Order & Deduct All Stock", type="primary", use_container_width=True):
@@ -407,22 +428,16 @@ if check_password():
                         else:
                             gross = qty_sold * unit_price
                             total_cogs = qty_sold * unit_cogs
-                            
-                            # Fulfillment Math & Deductions Prep
                             fulfillment_cost = 0.0
                             pkg_updates = []
                             shortage_flag = False
-                            shortage_msg = ""
                             
-                            # Aggregate quantities just in case they added the same material on two different rows
                             f_needs = {}
                             for _, f_row in f_edited.iterrows():
                                 item = f_row.get("Fulfillment Material")
                                 q = f_row.get("Quantity")
                                 if pd.notna(item) and item != "None" and pd.notna(q):
-                                    q = int(q)
-                                    if q > 0:
-                                        f_needs[item] = f_needs.get(item, 0) + q
+                                    f_needs[item] = f_needs.get(item, 0) + int(q)
                                         
                             for item, q in f_needs.items():
                                 pm_match = packaging[packaging['material_name'] == item]
@@ -430,31 +445,22 @@ if check_password():
                                     pm_id = int(pm_match.iloc[0]['id'])
                                     pm_cost = float(pm_match.iloc[0]['cost_per_unit'])
                                     pm_stock = int(pm_match.iloc[0]['remaining_quantity'])
-                                    
                                     if pm_stock < q:
                                         shortage_flag = True
-                                        shortage_msg = f"Not enough '{item}' in Packaging Vault (Have: {pm_stock}, Need: {q})."
+                                        st.error(f"⚠️ Not enough '{item}' in Packaging Vault. Sale aborted.")
                                         break
-                                        
                                     fulfillment_cost += (pm_cost * q)
                                     pkg_updates.append({"id": pm_id, "new_stock": pm_stock - q})
                             
-                            if shortage_flag:
-                                st.error(f"⚠️ {shortage_msg} Sale aborted.")
-                            else:
+                            if not shortage_flag:
                                 total_cogs += fulfillment_cost
                                 net = gross - total_cogs
                                 gm = (net / gross) if gross > 0 else 0.0
                                 
-                                # 1. Deduct Finished Product
                                 new_fp_stock = current_stock - qty_sold
                                 supabase.table('finished_products').update({'stock_quantity': new_fp_stock}).eq('id', int(fg_match['id'])).execute()
+                                for pu in pkg_updates: supabase.table('packaging').update({'remaining_quantity': pu['new_stock']}).eq('id', pu['id']).execute()
                                 
-                                # 2. Deduct Fulfillment Packaging
-                                for pu in pkg_updates:
-                                    supabase.table('packaging').update({'remaining_quantity': pu['new_stock']}).eq('id', pu['id']).execute()
-                                
-                                # 3. Log the Sale to Database
                                 supabase.table('sales_records').insert({
                                     "order_description": sel_product, "quantity": qty_sold, "unit_price": unit_price,
                                     "gross_revenue": gross, "cogs": total_cogs, "net_profit": net,
@@ -463,10 +469,132 @@ if check_password():
                                 }).execute()
                                 
                                 st.success(f"Order logged! Deducted {qty_sold} {sel_product} and fulfillment materials from vaults.")
-                                time.sleep(1.5)
-                                st.rerun()
-            else:
-                st.warning("⚠️ You must have products logged in the 'Finished Products' vault before you can process a sale.")
+                                time.sleep(1.5); st.rerun()
+
+    # --- 1.5 CONSIGNMENT TRACKER ---
+    elif menu == "Consignment Tracker":
+        st.title("Consignment Agreements")
+        st.markdown("<p style='color: #64748B;'>Manage goods sitting on partner shelves. Consigned goods are deducted from your lab stock but do not count as Revenue until explicitly marked as sold here.</p>", unsafe_allow_html=True)
+        
+        if not consignment_df.empty:
+            active_cons = consignment_df[consignment_df['status'] == 'Active'].copy()
+            total_active_units = active_cons['qty_consigned'].sum() - active_cons['qty_sold'].sum()
+            total_potential_rev = ((active_cons['qty_consigned'] - active_cons['qty_sold']) * active_cons['wholesale_price']).sum()
+            
+            col1, col2 = st.columns(2)
+            col1.metric("Unsold Units on Partner Shelves", f"{total_active_units:,}")
+            col2.metric("Total Potential Payout Revenue", f"${total_potential_rev:,.2f}")
+            
+            st.write("---")
+            st.markdown("#### Active Consignment Ledgers")
+            
+            display_cons = consignment_df.copy().sort_values('created_at', ascending=False)
+            display_cons['Date'] = pd.to_datetime(display_cons['created_at']).dt.strftime('%Y-%m-%d')
+            display_cons['Remaining'] = display_cons['qty_consigned'] - display_cons['qty_sold']
+            display_cons.insert(0, '🔍', False)
+            
+            with st.container(border=True):
+                edited_cons = st.data_editor(
+                    display_cons[['🔍', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']], 
+                    use_container_width=True, hide_index=True, disabled=['Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']
+                )
+
+            selected_cons = edited_cons[edited_cons['🔍'] == True]
+            if not selected_cons.empty:
+                sel_id = selected_cons.iloc[0]['id']
+                cons_item = consignment_df[consignment_df['id'] == sel_id].iloc[0]
+                ref_num = cons_item['order_ref_number']
+                
+                # Fetch all items in this consignment batch
+                if pd.notna(ref_num) and str(ref_num).strip() != "":
+                    batch_items = consignment_df[consignment_df['order_ref_number'] == ref_num]
+                else:
+                    batch_items = pd.DataFrame([cons_item])
+                
+                st.write("##")
+                with st.container(border=True):
+                    st.markdown(f"#### 🤝 Inspecting Consignment: {ref_num if pd.notna(ref_num) else 'Unreferenced'}")
+                    st.write(f"**Partner:** {cons_item['partner_name']}")
+                    
+                    # Generate PDF button
+                    pdf_bytes = generate_consignment_pdf(str(ref_num), batch_items, str(cons_item['partner_name']), pd.to_datetime(cons_item['created_at']).strftime('%Y-%m-%d'))
+                    st.download_button(label="📄 Download Official Consignment Agreement PDF", data=pdf_bytes, file_name=f"Consignment_{ref_num}.pdf", mime="application/pdf", use_container_width=True, type="secondary")
+                    
+                    st.write("---")
+                    st.markdown(f"**Log Sales for: {cons_item['product_name']}**")
+                    remaining_to_sell = cons_item['qty_consigned'] - cons_item['qty_sold']
+                    
+                    if remaining_to_sell > 0:
+                        with st.form("log_cons_sale"):
+                            c1, c2 = st.columns(2)
+                            units_sold = c1.number_input("Units Sold by Partner", min_value=1, max_value=int(remaining_to_sell), step=1)
+                            payment_status = c2.selectbox("Has the partner paid you for these yet?", ["Pending", "Paid"])
+                            
+                            if st.form_submit_button("Log as Revenue & Update Consignment", type="primary"):
+                                new_qty_sold = cons_item['qty_sold'] + units_sold
+                                new_status = "Completed" if new_qty_sold >= cons_item['qty_consigned'] else "Active"
+                                
+                                # 1. Update Consignment Vault
+                                supabase.table('consignment_records').update({
+                                    'qty_sold': new_qty_sold,
+                                    'status': new_status
+                                }).eq('id', int(sel_id)).execute()
+                                
+                                # 2. Insert into Sales (Revenue!) - without touching Finished Goods stock
+                                gross_rev = units_sold * cons_item['wholesale_price']
+                                cogs = units_sold * cons_item['unit_cogs']
+                                net_profit = gross_rev - cogs
+                                gm = (net_profit / gross_rev) if gross_rev > 0 else 0.0
+                                
+                                supabase.table('sales_records').insert({
+                                    "order_description": cons_item['product_name'], "quantity": units_sold, "unit_price": cons_item['wholesale_price'],
+                                    "gross_revenue": gross_rev, "cogs": cogs, "net_profit": net_profit,
+                                    "account": cons_item['partner_name'], "order_ref_number": ref_num,
+                                    "sale_date": datetime.today().strftime('%Y-%m-%d'), "gm": gm, "channel": "Consignment Payout", "status": payment_status
+                                }).execute()
+                                
+                                st.success(f"Successfully converted {units_sold} consigned units into Sales Revenue!")
+                                time.sleep(1.5); st.rerun()
+                    else:
+                        st.success("✅ All units from this consignment line have been sold and logged.")
+                        
+        else:
+            st.info("No consignment records found.")
+
+        # Consign New Goods
+        st.write("---")
+        with st.expander("➕ Consign New Goods (Deducts from Lab Stock)"):
+            if not finished_goods.empty:
+                with st.form("add_consignment"):
+                    st.info("💡 Goods entered here will leave your inventory vault but will NOT count towards Gross Revenue until the partner sells them.")
+                    c1, c2, c3 = st.columns(3)
+                    partner = c1.text_input("Partner / Retailer Name", required=True)
+                    ref = c2.text_input("Consignment Ref #", required=True)
+                    prod = c3.selectbox("Finished Product", finished_goods['product_name'].tolist())
+                    
+                    fg_match = finished_goods[finished_goods['product_name'] == prod].iloc[0]
+                    def_retail = float(fg_match['retail_price'])
+                    def_cogs = float(fg_match['unit_cogs'])
+                    curr_stock = int(fg_match['stock_quantity'])
+                    
+                    c4, c5, c6 = st.columns(3)
+                    qty = c4.number_input("Qty to Consign", min_value=1, step=1)
+                    retail_p = c5.number_input("Suggested Retail Price ($)", value=def_retail, min_value=0.0)
+                    wholesale_p = c6.number_input("Payout to Maker per Unit ($)", value=def_retail * 0.5, min_value=0.0)
+                    
+                    if st.form_submit_button("Ship Consignment & Deduct Stock", type="primary"):
+                        if curr_stock < qty:
+                            st.error(f"⚠️ You only have {curr_stock} of {prod}. Aborted.")
+                        else:
+                            # 1. Deduct Stock
+                            supabase.table('finished_products').update({'stock_quantity': curr_stock - qty}).eq('id', int(fg_match['id'])).execute()
+                            # 2. Add to Consignment
+                            supabase.table('consignment_records').insert({
+                                "partner_name": partner, "order_ref_number": ref, "product_name": prod,
+                                "qty_consigned": qty, "unit_cogs": def_cogs, "retail_price": retail_p, "wholesale_price": wholesale_p
+                            }).execute()
+                            st.success("Consignment logged securely!")
+                            time.sleep(1.5); st.rerun()
 
     # --- 2. FINANCIAL OVERVIEW ---
     elif menu == "Financial Overview":
@@ -479,30 +607,24 @@ if check_password():
         fp_cogs_total = (finished_goods['unit_cogs'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
         fp_retail_total = (finished_goods['retail_price'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
         
-        vault_assets = rm_total + pm_total + fp_cogs_total
+        # Add Consigned Goods Value to Assets
+        cons_cogs_total = 0.0
+        if not consignment_df.empty:
+            active_cons = consignment_df[consignment_df['status'] == 'Active'].copy()
+            active_cons['unsold_qty'] = active_cons['qty_consigned'] - active_cons['qty_sold']
+            cons_cogs_total = (active_cons['unsold_qty'] * active_cons['unit_cogs']).sum()
+        
+        vault_assets = rm_total + pm_total + fp_cogs_total + cons_cogs_total
         
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.metric("Raw Materials", f"${rm_total:,.2f}")
         with c2: st.metric("Packaging", f"${pm_total:,.2f}")
-        with c3: st.metric("Finished Goods (COGS)", f"${fp_cogs_total:,.2f}")
-        with c4: st.metric("Total Vault Assets", f"${vault_assets:,.2f}")
+        with c3: st.metric("Finished Goods (In Lab)", f"${fp_cogs_total:,.2f}")
+        with c4: st.metric("Finished Goods (Consigned)", f"${cons_cogs_total:,.2f}")
         
         st.write("---")
         st.markdown("#### Projected Revenue")
         st.metric("Potential Retail Value on Shelf", f"${fp_retail_total:,.2f}", f"Est. Gross Profit: ${(fp_retail_total - fp_cogs_total):,.2f}")
-        
-        st.write("---")
-        c_left, c_right = st.columns(2)
-        with c_left:
-            st.markdown("#### Top Raw Materials")
-            if not inventory.empty:
-                inv_chart = inventory.copy(); inv_chart['Total Value ($)'] = inv_chart['price_per_kg'] * inv_chart['quantity_kg']
-                st.dataframe(inv_chart.sort_values(by="Total Value ($)", ascending=False).head(5)[['trade_name', 'Total Value ($)']], use_container_width=True, hide_index=True)
-        with c_right:
-            st.markdown("#### Top Finished Products")
-            if not finished_goods.empty:
-                fg_chart = finished_goods.copy(); fg_chart['Retail Value ($)'] = fg_chart['retail_price'] * fg_chart['stock_quantity']
-                st.dataframe(fg_chart.sort_values(by="Retail Value ($)", ascending=False).head(5)[['product_name', 'Retail Value ($)']], use_container_width=True, hide_index=True)
 
     # --- 3. BALANCE SHEET GENERATOR ---
     elif menu == "Balance Sheet":
@@ -513,62 +635,49 @@ if check_password():
         pm_total = (packaging['cost_per_unit'] * packaging['remaining_quantity']).sum() if not packaging.empty else 0.0
         fp_cogs_total = (finished_goods['unit_cogs'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
         
+        cons_cogs_total = 0.0
+        if not consignment_df.empty:
+            active_cons = consignment_df[consignment_df['status'] == 'Active'].copy()
+            active_cons['unsold_qty'] = active_cons['qty_consigned'] - active_cons['qty_sold']
+            cons_cogs_total = (active_cons['unsold_qty'] * active_cons['unit_cogs']).sum()
+        
+        total_inv_fg = fp_cogs_total + cons_cogs_total
+        
         ar_total = 0.0
         if not sales_records_df.empty:
             ar_total = sales_records_df[sales_records_df['status'] == 'Pending']['gross_revenue'].sum()
             
         with st.form("balance_sheet_form"):
             col1, col2 = st.columns(2)
-            
             with col1:
                 st.markdown("#### ASSETS")
-                st.info("💡 *Inventory and Accounts Receivable are pulled live from your database.*")
                 cash = st.number_input("Cash in Bank ($)", min_value=0.0, value=0.0, step=100.0)
                 st.write(f"**Accounts Receivable (Pending Sales):** ${ar_total:,.2f}")
                 st.write(f"**Inventory (Raw Materials):** ${rm_total:,.2f}")
                 st.write(f"**Inventory (Packaging):** ${pm_total:,.2f}")
-                st.write(f"**Inventory (Finished Goods COGS):** ${fp_cogs_total:,.2f}")
+                st.write(f"**Inventory (Finished Goods + Consigned):** ${total_inv_fg:,.2f}")
                 st.write("---")
-                st.markdown("**Fixed Assets**")
                 fixed_assets = st.number_input("Property & Equipment Value ($)", min_value=0.0, value=0.0, step=100.0)
-                
             with col2:
                 st.markdown("#### LIABILITIES")
-                st.info("💡 *Enter any outstanding debts or unpaid invoices here.*")
                 accounts_payable = st.number_input("Accounts Payable (Unpaid Bills) ($)", min_value=0.0, value=0.0, step=100.0)
                 debt = st.number_input("Short/Long Term Debt ($)", min_value=0.0, value=0.0, step=100.0)
-                
-            st.write("---")
             submit_bs = st.form_submit_button("Calculate & Generate Balance Sheet", type="primary", use_container_width=True)
             
         if submit_bs:
-            total_assets = cash + ar_total + rm_total + pm_total + fp_cogs_total + fixed_assets
+            total_assets = cash + ar_total + rm_total + pm_total + total_inv_fg + fixed_assets
             total_liabilities = accounts_payable + debt
             owner_equity = total_assets - total_liabilities
             
-            st.write("##")
-            st.markdown("### Snapshot Results")
             r1, r2, r3 = st.columns(3)
             r1.metric("Total Assets", f"${total_assets:,.2f}")
             r2.metric("Total Liabilities", f"${total_liabilities:,.2f}")
             r3.metric("Owner's Equity", f"${owner_equity:,.2f}")
             
             if owner_equity == (total_assets - total_liabilities):
-                st.success("✅ The Balance Sheet is perfectly balanced (Assets = Liabilities + Equity).")
                 date_str = datetime.today().strftime('%B %d, %Y')
-                pdf_bytes = generate_balance_sheet_pdf(
-                    date_str, cash, ar_total, rm_total, pm_total, fp_cogs_total, 
-                    fixed_assets, accounts_payable, debt, total_assets, total_liabilities, owner_equity
-                )
-                st.download_button(
-                    label="📄 Download Official PDF Balance Sheet",
-                    data=pdf_bytes,
-                    file_name=f"TherapeuticOils_BalanceSheet_{datetime.today().strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            else:
-                st.error("Mathematical error in calculation.")
+                pdf_bytes = generate_balance_sheet_pdf(date_str, cash, ar_total, rm_total, pm_total, total_inv_fg, fixed_assets, accounts_payable, debt, total_assets, total_liabilities, owner_equity)
+                st.download_button("📄 Download Official PDF Balance Sheet", data=pdf_bytes, file_name=f"TherapeuticOils_BalanceSheet_{datetime.today().strftime('%Y%m%d')}.pdf", mime="application/pdf", use_container_width=True)
 
     # --- 4. RAW MATERIAL LIBRARY ---
     elif menu == "Raw Material Library":
@@ -801,7 +910,6 @@ if check_password():
                     c_act1, c_act2, c_act3 = st.columns(3)
                     with c_act1:
                         with st.expander("✏️ Edit Current Edition"):
-                            st.info("Loads this exact formula into the Architect below to modify it and overwrite this version.")
                             if st.button("Edit This Version", use_container_width=True):
                                 st.session_state.builder = pd.DataFrame(recipe_items)
                                 st.session_state.draft_name = sel_f['formula_name']
@@ -812,7 +920,6 @@ if check_password():
                                 st.rerun()
                     with c_act2:
                         with st.expander("🔄 Create New Edition"):
-                            st.info("Locks this formula to the parent FR code and drops it into the Architect to draft a new edition (e.g., -2).")
                             if st.button("Draft New Version", use_container_width=True):
                                 st.session_state.builder = pd.DataFrame(recipe_items)
                                 match = re.search(r' V(\d+)$', sel_f['formula_name'])
@@ -863,7 +970,6 @@ if check_password():
                 
                 ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
                 
-                st.markdown("<p style='font-size: 0.85rem; font-weight: 600;'>Recipe Phases</p>", unsafe_allow_html=True)
                 edit_df = st.data_editor(
                     st.session_state.builder, 
                     num_rows="dynamic", 
@@ -874,24 +980,22 @@ if check_password():
                     }
                 )
                 
-                st.markdown("<p style='font-size: 0.85rem; font-weight: 600;'>Manufacturing Procedure</p>", unsafe_allow_html=True)
                 procedure_text = st.text_area(
-                    "Step-by-step instructions", 
+                    "Manufacturing Procedure", 
                     value=st.session_state.get("draft_procedure", ""),
-                    placeholder="1. Heat Phase A to 75°C\n2. Slowly stir in Phase B...\n3. Cool below 40°C before adding Phase C.",
-                    height=150, label_visibility="collapsed"
+                    placeholder="1. Heat Phase A to 75°C...",
+                    height=150
                 )
             
             with c_metrics:
                 st.write("<div style='margin-top: 2.2rem;'></div>", unsafe_allow_html=True)
-                st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Live Cost Analysis (1 Kg Batch)</p>", unsafe_allow_html=True)
                 total_cost_kg = 0.0; live_data = []
                 for _, row in edit_df.iterrows():
                     ing = row.get('Ingredient'); perc = row.get('%', 0.0); phase = row.get('Phase', 'A')
                     if ing and pd.notna(ing) and ing in inventory['trade_name'].values:
                         price = float(inventory[inventory['trade_name'] == ing]['price_per_kg'].values[0])
                         cost_contrib = (perc / 100.0) * price; total_cost_kg += cost_contrib
-                        live_data.append({"Phase": phase, "Material": ing, "RM Base Price": f"${price:,.2f}/Kg", "Cost Contrib.": f"${cost_contrib:,.2f}"})
+                        live_data.append({"Phase": phase, "Material": ing, "Cost": f"${cost_contrib:,.2f}"})
                 
                 if live_data: 
                     st.dataframe(pd.DataFrame(live_data).sort_values('Phase'), use_container_width=True, hide_index=True)
