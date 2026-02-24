@@ -294,7 +294,8 @@ if check_password():
         elif system_module == "📦 Inventory Management":
             menu = st.radio("Nav", ["Raw Material Library", "Packaging Library", "Finished Products"], label_visibility="collapsed")
         else:
-            menu = st.radio("Nav", ["Formula Hub", "COGS Calculator", "Production Logs"], label_visibility="collapsed")
+            # THIS IS THE REQUESTED SPLIT IN THE SIDEBAR!
+            menu = st.radio("Nav", ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"], label_visibility="collapsed")
             
         st.write("<br><br>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.rerun()
@@ -751,7 +752,7 @@ if check_password():
                     c2.write(f"**Total Stock:** {mat['quantity_kg']} Kg<br>**Price:** ${mat['price_per_kg']}/Kg", unsafe_allow_html=True)
                     c3.write(f"**Shelf Value:** ${(mat['price_per_kg'] * mat['quantity_kg']):.2f}")
                     
-                   # --- NEW LOT TRACKING SECTION ---
+                    # --- NEW LOT TRACKING SECTION ---
                     st.write("---")
                     st.markdown("#### 📦 Lot Tracking Ledgers")
                     
@@ -846,7 +847,7 @@ if check_password():
                         "lots": init_lot
                     }).execute(); st.rerun()
 
-   # --- 5. PACKAGING LIBRARY ---
+    # --- 5. PACKAGING LIBRARY ---
     elif menu == "Packaging Library":
         st.title("Packaging Library")
         st.markdown("<p style='color: #64748B;'>Track bottles, droppers, caps, and labels. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
@@ -1030,10 +1031,10 @@ if check_password():
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
-    # --- 7. FORMULA HUB / R&D ---
-    elif menu == "Formula Hub":
-        st.title("The Formula Hub")
-        st.markdown("<p style='color: #64748B;'>Design, calculate, execute, and version control batch productions.</p>", unsafe_allow_html=True)
+    # --- 7. FORMULA LIBRARY ---
+    elif menu == "Formula Library":
+        st.title("📚 Formula Library")
+        st.markdown("<p style='color: #64748B;'>Inspect read-only recipes and execute live manufacturing batches.</p>", unsafe_allow_html=True)
         
         if not formulas_df.empty:
             formulas_df['base_code'] = formulas_df['fr_code'].apply(lambda x: str(x).split('-')[0])
@@ -1125,7 +1126,7 @@ if check_password():
                                 st.session_state.edit_formula_id = int(sel_f['id'])
                                 st.session_state.edit_fr_code = sel_f['fr_code']
                                 if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
-                                st.rerun()
+                                st.success("Loaded! Please open the 'Formula Builder' tab.")
                     with c_act2:
                         with st.expander("🔄 Create New Edition"):
                             if st.button("Draft New Version", use_container_width=True):
@@ -1140,7 +1141,7 @@ if check_password():
                                 st.session_state.base_fr_code = sel_f['fr_code']
                                 st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
                                 if "edit_formula_id" in st.session_state: del st.session_state["edit_formula_id"]
-                                st.rerun()
+                                st.success("Loaded! Please open the 'Formula Builder' tab.")
                     with c_act3:
                         with st.expander("🗑️ Erase Formula"):
                             del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
@@ -1149,99 +1150,103 @@ if check_password():
         else:
             st.info("No formulas architected yet.")
 
-        st.write("---")
-        with st.expander("⚙️ Architect Formula Builder", expanded=True):
-            c_build, c_metrics = st.columns([3, 2])
-            with c_build:
-                if "edit_formula_id" in st.session_state:
-                    st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>✏️ EDITING MODE: Overwriting {st.session_state.edit_fr_code}</span>", unsafe_allow_html=True)
-                    if st.button("❌ Cancel Edit & Start Fresh"):
-                        st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
-                        for key in ["draft_name", "edit_formula_id", "edit_fr_code", "draft_procedure"]:
-                            if key in st.session_state: del st.session_state[key]
-                        st.rerun()
-                    st.write("")
-                elif "base_fr_code" in st.session_state:
-                    base_disp = st.session_state.base_fr_code.split('-')[0]
-                    st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>🔗 NEW EDITION MODE: Linked to Parent {base_disp}</span>", unsafe_allow_html=True)
-                    if st.button("❌ Cancel Edition & Start Fresh"):
-                        st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
-                        for key in ["draft_name", "base_fr_code", "draft_procedure"]:
-                            if key in st.session_state: del st.session_state[key]
-                        st.rerun()
-                    st.write("")
-                
-                f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil")
-                
-                if "builder" not in st.session_state: 
+    # --- 7.5 FORMULA BUILDER ---
+    elif menu == "Formula Builder":
+        st.title("⚙️ Formula Builder")
+        st.markdown("<p style='color: #64748B;'>Draft, calculate, and version control your recipes here.</p>", unsafe_allow_html=True)
+        
+        c_build, c_metrics = st.columns([3, 2])
+        with c_build:
+            if "edit_formula_id" in st.session_state:
+                st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>✏️ EDITING MODE: Overwriting {st.session_state.edit_fr_code}</span>", unsafe_allow_html=True)
+                if st.button("❌ Cancel Edit & Start Fresh"):
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
-                
-                ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
-                
-                edit_df = st.data_editor(
-                    st.session_state.builder, 
-                    num_rows="dynamic", 
-                    use_container_width=True, 
-                    column_config={
-                        "Phase": st.column_config.SelectboxColumn("Phase", options=["A", "B", "C", "D", "E", "F"], required=True),
-                        "Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options, required=True)
-                    }
-                )
-                
-                procedure_text = st.text_area(
-                    "Manufacturing Procedure", 
-                    value=st.session_state.get("draft_procedure", ""),
-                    placeholder="1. Heat Phase A to 75°C...",
-                    height=150
-                )
+                    for key in ["draft_name", "edit_formula_id", "edit_fr_code", "draft_procedure"]:
+                        if key in st.session_state: del st.session_state[key]
+                    st.rerun()
+                st.write("")
+            elif "base_fr_code" in st.session_state:
+                base_disp = st.session_state.base_fr_code.split('-')[0]
+                st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>🔗 NEW EDITION MODE: Linked to Parent {base_disp}</span>", unsafe_allow_html=True)
+                if st.button("❌ Cancel Edition & Start Fresh"):
+                    st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
+                    for key in ["draft_name", "base_fr_code", "draft_procedure"]:
+                        if key in st.session_state: del st.session_state[key]
+                    st.rerun()
+                st.write("")
             
-            with c_metrics:
-                st.write("<div style='margin-top: 2.2rem;'></div>", unsafe_allow_html=True)
-                total_cost_kg = 0.0; live_data = []
-                for _, row in edit_df.iterrows():
-                    ing = row.get('Ingredient'); perc = row.get('%', 0.0); phase = row.get('Phase', 'A')
-                    if ing and pd.notna(ing) and ing in inventory['trade_name'].values:
-                        price = float(inventory[inventory['trade_name'] == ing]['price_per_kg'].values[0])
-                        cost_contrib = (perc / 100.0) * price; total_cost_kg += cost_contrib
-                        live_data.append({"Phase": phase, "Material": ing, "Cost": f"${cost_contrib:,.2f}"})
+            f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil")
+            
+            if "builder" not in st.session_state: 
+                st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
+            
+            ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
+            
+            edit_df = st.data_editor(
+                st.session_state.builder, 
+                num_rows="dynamic", 
+                use_container_width=True, 
+                column_config={
+                    "Phase": st.column_config.SelectboxColumn("Phase", options=["A", "B", "C", "D", "E", "F"], required=True),
+                    "Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options, required=True)
+                }
+            )
+            
+            procedure_text = st.text_area(
+                "Manufacturing Procedure", 
+                value=st.session_state.get("draft_procedure", ""),
+                placeholder="1. Heat Phase A to 75°C...",
+                height=150
+            )
+        
+        with c_metrics:
+            st.write("<div style='margin-top: 2.2rem;'></div>", unsafe_allow_html=True)
+            total_cost_kg = 0.0; live_data = []
+            for _, row in edit_df.iterrows():
+                ing = row.get('Ingredient'); perc = row.get('%', 0.0); phase = row.get('Phase', 'A')
+                if ing and pd.notna(ing) and ing in inventory['trade_name'].values:
+                    price = float(inventory[inventory['trade_name'] == ing]['price_per_kg'].values[0])
+                    cost_contrib = (perc / 100.0) * price; total_cost_kg += cost_contrib
+                    live_data.append({"Phase": phase, "Material": ing, "Cost": f"${cost_contrib:,.2f}"})
+            
+            if live_data: 
+                st.dataframe(pd.DataFrame(live_data).sort_values('Phase'), use_container_width=True, hide_index=True)
+            else: 
+                st.info("Select ingredients to see live costs.")
                 
-                if live_data: 
-                    st.dataframe(pd.DataFrame(live_data).sort_values('Phase'), use_container_width=True, hide_index=True)
-                else: 
-                    st.info("Select ingredients to see live costs.")
-                    
-                st.metric("Total Formula Cost / Kg", f"${total_cost_kg:,.2f}")
-                total_perc = edit_df["%"].sum() if "%" in edit_df.columns else 0.0
-                
-                if round(total_perc, 2) == 100.0:
-                    st.success("✅ Formula is balanced (100%)")
-                    btn_label = "💾 Update Existing Edition" if "edit_formula_id" in st.session_state else "Commit Formula to Vault"
-                    if st.button(btn_label, type="primary", use_container_width=True) and f_name:
-                        recipe_json = edit_df.to_dict(orient='records')
-                        if "edit_formula_id" in st.session_state:
-                            supabase.table("formulas").update({
-                                "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text
-                            }).eq('id', st.session_state.edit_formula_id).execute()
+            st.metric("Total Formula Cost / Kg", f"${total_cost_kg:,.2f}")
+            total_perc = edit_df["%"].sum() if "%" in edit_df.columns else 0.0
+            
+            if round(total_perc, 2) == 100.0:
+                st.success("✅ Formula is balanced (100%)")
+                btn_label = "💾 Update Existing Edition" if "edit_formula_id" in st.session_state else "Commit Formula to Vault"
+                if st.button(btn_label, type="primary", use_container_width=True) and f_name:
+                    recipe_json = edit_df.to_dict(orient='records')
+                    if "edit_formula_id" in st.session_state:
+                        supabase.table("formulas").update({
+                            "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text
+                        }).eq('id', st.session_state.edit_formula_id).execute()
+                        st.success("Updated Successfully!")
+                    else:
+                        if "base_fr_code" in st.session_state:
+                            base_code = st.session_state.base_fr_code.split('-')[0]
+                            existing_v_count = formulas_df[formulas_df['fr_code'].str.startswith(base_code)].shape[0]
+                            fr_c = f"{base_code}-{existing_v_count + 1}"
                         else:
-                            if "base_fr_code" in st.session_state:
-                                base_code = st.session_state.base_fr_code.split('-')[0]
-                                existing_v_count = formulas_df[formulas_df['fr_code'].str.startswith(base_code)].shape[0]
-                                fr_c = f"{base_code}-{existing_v_count + 1}"
+                            if formulas_df.empty:
+                                fr_c = "FR00001"
                             else:
-                                if formulas_df.empty:
-                                    fr_c = "FR00001"
-                                else:
-                                    root_codes = formulas_df['fr_code'].str.extract(r'FR(\d{5})')[0].dropna().astype(int)
-                                    next_id = root_codes.max() + 1 if not root_codes.empty else 1
-                                    fr_c = f"FR{next_id:05d}"
-                            
-                            supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).execute()
-                            
-                        st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
-                        for key in ["draft_name", "base_fr_code", "draft_procedure", "edit_formula_id", "edit_fr_code"]:
-                            if key in st.session_state: del st.session_state[key]
-                        st.rerun()
-                else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
+                                root_codes = formulas_df['fr_code'].str.extract(r'FR(\d{5})')[0].dropna().astype(int)
+                                next_id = root_codes.max() + 1 if not root_codes.empty else 1
+                                fr_c = f"FR{next_id:05d}"
+                        
+                        supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).execute()
+                        st.success("Saved to Library!")
+                        
+                    st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
+                    for key in ["draft_name", "base_fr_code", "draft_procedure", "edit_formula_id", "edit_fr_code"]:
+                        if key in st.session_state: del st.session_state[key]
+            else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
     # --- 8. COGS CALCULATOR ---
     elif menu == "COGS Calculator":
