@@ -729,16 +729,17 @@ if check_password():
     # --- 4. RAW MATERIAL LIBRARY ---
     elif menu == "Raw Material Library":
         st.title("Raw Material Library")
-        st.markdown("<p style='color: #64748B;'>Manage essential oils, carriers, and active ingredients.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B;'>Manage essential oils, carriers, and active ingredients. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
         if not inventory.empty:
             display_inv = inventory.copy(); display_inv['Cost/g ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format); display_inv.insert(0, '🔍', False) 
             with st.container(border=True):
-                edited_inv = st.data_editor(display_inv[['🔍', 'rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']], use_container_width=True, hide_index=True, disabled=['rm_code', 'Cost/g ($)'])
+                # Disabled quantity_kg so it is strictly driven by the sum of lots
+                edited_inv = st.data_editor(display_inv[['🔍', 'rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']], use_container_width=True, hide_index=True, disabled=['rm_code', 'Cost/g ($)', 'quantity_kg'])
                 if st.button("💾 Synchronize Vault"):
                     for idx, row in edited_inv.iterrows():
                         orig = inventory.loc[idx]
-                        if row['trade_name'] != orig['trade_name'] or row['inci_name'] != orig['inci_name'] or row['price_per_kg'] != orig['price_per_kg'] or row['quantity_kg'] != orig['quantity_kg']:
-                            supabase.table('inventory').update({"trade_name": row['trade_name'], "inci_name": row['inci_name'], "price_per_kg": row['price_per_kg'], "quantity_kg": row['quantity_kg']}).eq('id', int(orig['id'])).execute()
+                        if row['trade_name'] != orig['trade_name'] or row['inci_name'] != orig['inci_name'] or row['price_per_kg'] != orig['price_per_kg']:
+                            supabase.table('inventory').update({"trade_name": row['trade_name'], "inci_name": row['inci_name'], "price_per_kg": row['price_per_kg']}).eq('id', int(orig['id'])).execute()
                     st.rerun()
             selected_mats = edited_inv[edited_inv['🔍'] == True]
             if not selected_mats.empty:
@@ -747,8 +748,61 @@ if check_password():
                     st.markdown(f"#### {mat['trade_name']}")
                     c1, c2, c3 = st.columns(3)
                     c1.write(f"**Code:** {mat['rm_code']}<br>**INCI:** {mat['inci_name']}", unsafe_allow_html=True)
-                    c2.write(f"**Stock:** {mat['quantity_kg']} Kg<br>**Price:** ${mat['price_per_kg']}/Kg", unsafe_allow_html=True)
+                    c2.write(f"**Total Stock:** {mat['quantity_kg']} Kg<br>**Price:** ${mat['price_per_kg']}/Kg", unsafe_allow_html=True)
                     c3.write(f"**Shelf Value:** ${(mat['price_per_kg'] * mat['quantity_kg']):.2f}")
+                    
+                    # --- NEW LOT TRACKING SECTION ---
+                    st.write("---")
+                    st.markdown("#### 📦 Lot Tracking Ledgers")
+                    
+                    lots = mat.get('lots', [])
+                    # Auto-generate a default lot if none exist
+                    if pd.isna(lots) or lots is None or lots == "" or str(lots) == "nan" or str(lots) == "[]" or not lots:
+                        today_str = datetime.today().strftime('%Y-%m-%d')
+                        exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
+                        lots = [{
+                            "Lot Number": f"{mat['rm_code']}-L01",
+                            "Mfg Date": today_str,
+                            "Rcv Date": today_str,
+                            "Exp Date": exp_str,
+                            "Qty (Kg)": float(mat['quantity_kg']),
+                            "Current": True
+                        }]
+                    
+                    lots_df = pd.DataFrame(lots)
+                    
+                    with st.form(f"lots_form_{mat['id']}"):
+                        st.info("💡 Edit quantities, add new lots, and mark exactly ONE lot as 'Current Lot'. Total Stock will auto-update.")
+                        ed_lots = st.data_editor(
+                            lots_df,
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Current": st.column_config.CheckboxColumn("Current Lot", default=False),
+                                "Mfg Date": st.column_config.TextColumn("Mfg Date (YYYY-MM-DD)"),
+                                "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"),
+                                "Exp Date": st.column_config.TextColumn("Exp Date (YYYY-MM-DD)"),
+                                "Qty (Kg)": st.column_config.NumberColumn("Qty (Kg)", format="%.3f")
+                            }
+                        )
+                        if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
+                            current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
+                            if current_count > 1:
+                                st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
+                            else:
+                                new_lots_json = ed_lots.to_dict(orient='records')
+                                new_total_kg = ed_lots['Qty (Kg)'].sum() if 'Qty (Kg)' in ed_lots.columns else 0.0
+                                
+                                supabase.table('inventory').update({
+                                    "lots": new_lots_json,
+                                    "quantity_kg": float(new_total_kg)
+                                }).eq('id', int(mat['id'])).execute()
+                                st.success("Lots updated successfully! Total Stock recalculated.")
+                                time.sleep(1.5)
+                                st.rerun()
+                    # --- END LOT TRACKING SECTION ---
+
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
                         if st.button("Erase Record") and del_pass == "lab2026":
@@ -757,9 +811,35 @@ if check_password():
         with st.expander("➕ Register New Material"):
             with st.form("add_material", clear_on_submit=True):
                 c1, c2 = st.columns(2); new_t = c1.text_input("Trade Name"); new_i = c1.text_input("INCI Name"); new_p = c2.number_input("Price/Kg ($)", min_value=0.0); new_q = c2.number_input("Initial Qty (Kg)", min_value=0.0)
+                
+                st.markdown("**Initial Lot Details**")
+                l1, l2, l3, l4 = st.columns(4)
+                new_lot = l1.text_input("Lot Number", "L-01")
+                new_mfg = l2.date_input("Mfg Date")
+                new_rcv = l3.date_input("Rcv Date")
+                new_exp = l4.date_input("Exp Date", value=datetime.today() + pd.DateOffset(years=2))
+
                 if st.form_submit_button("Register") and new_t != "":
                     next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
-                    supabase.table('inventory').insert({"rm_code": f"RM{next_id:05d}", "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q}).execute(); st.rerun()
+                    rm_code = f"RM{next_id:05d}"
+                    
+                    init_lot = [{
+                        "Lot Number": new_lot,
+                        "Mfg Date": new_mfg.strftime('%Y-%m-%d'),
+                        "Rcv Date": new_rcv.strftime('%Y-%m-%d'),
+                        "Exp Date": new_exp.strftime('%Y-%m-%d'),
+                        "Qty (Kg)": float(new_q),
+                        "Current": True
+                    }]
+                    
+                    supabase.table('inventory').insert({
+                        "rm_code": rm_code, 
+                        "trade_name": new_t, 
+                        "inci_name": new_i, 
+                        "price_per_kg": new_p, 
+                        "quantity_kg": new_q, 
+                        "lots": init_lot
+                    }).execute(); st.rerun()
 
     # --- 5. PACKAGING LIBRARY ---
     elif menu == "Packaging Library":
