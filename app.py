@@ -559,15 +559,26 @@ if check_password():
         else:
             st.info("No consignment records found.")
 
+       # Consign New Goods
         st.write("---")
         with st.expander("➕ Consign New Goods (Deducts from Lab Stock)"):
             if not finished_goods.empty:
+                
+                # --- Auto-Generator for CONS-XXXXXX ---
+                next_cons_id = 250  # Changed baseline from 1 to 250
+                if not consignment_df.empty:
+                    cons_codes = consignment_df['order_ref_number'].astype(str).str.extract(r'CONS-(\d+)')[0].dropna().astype(int)
+                    if not cons_codes.empty:
+                        # Take the highest number, but ensure it never drops below 250
+                        next_cons_id = max(250, cons_codes.max() + 1)
+                default_ref = f"CONS-{next_cons_id:06d}"
+
                 with st.form("add_consignment"):
                     st.info("💡 Goods entered here will leave your inventory vault but will NOT count towards Gross Revenue until the partner sells them.")
                     c1, c2, c3 = st.columns(3)
                     
                     partner = c1.text_input("Partner / Retailer Name")
-                    ref = c2.text_input("Consignment Ref #")
+                    ref = c2.text_input("Consignment Ref #", value=default_ref)  # Automatically pre-fills!
                     prod = c3.selectbox("Finished Product", finished_goods['product_name'].tolist())
                     
                     fg_match = finished_goods[finished_goods['product_name'] == prod].iloc[0]
@@ -586,7 +597,9 @@ if check_password():
                         elif curr_stock < qty:
                             st.error(f"⚠️ You only have {curr_stock} of {prod}. Aborted.")
                         else:
+                            # 1. Deduct Stock
                             supabase.table('finished_products').update({'stock_quantity': curr_stock - qty}).eq('id', int(fg_match['id'])).execute()
+                            # 2. Add to Consignment
                             supabase.table('consignment_records').insert({
                                 "partner_name": partner, "order_ref_number": ref, "product_name": prod,
                                 "qty_consigned": qty, "unit_cogs": def_cogs, "retail_price": retail_p, "wholesale_price": wholesale_p
