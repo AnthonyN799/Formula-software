@@ -137,7 +137,6 @@ def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
     pdf.cell(35, 8, f"${grand_total_owed:,.2f}", border=1, align="R")
     pdf.ln(15)
     
-    # Boilerplate terms
     pdf.set_font("Arial", "B", 10)
     pdf.cell(0, 6, "Terms of Consignment:", ln=True)
     pdf.set_font("Arial", "", 9)
@@ -148,7 +147,6 @@ def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
         "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
     )
     pdf.multi_cell(0, 5, terms)
-    
     return pdf.output(dest="S").encode("latin-1")
 
 def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed_assets, ap, debt, total_assets, total_liab, equity):
@@ -485,7 +483,7 @@ if check_password():
             col1.metric("Unsold Units on Partner Shelves", f"{total_active_units:,}")
             col2.metric("Total Potential Payout Revenue", f"${total_potential_rev:,.2f}")
             
-           st.write("---")
+            st.write("---")
             st.markdown("#### Active Consignment Ledgers")
             
             display_cons = consignment_df.copy().sort_values('created_at', ascending=False)
@@ -495,18 +493,13 @@ if check_password():
             
             with st.container(border=True):
                 edited_cons = st.data_editor(
-                    # WE ADDED 'id' to the list of columns here:
                     display_cons[['🔍', 'id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']], 
                     use_container_width=True, hide_index=True, 
                     disabled=['id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status'],
                     column_config={
-                        "id": None # This strictly hides the ID from your view so the table stays clean!
+                        "id": None
                     }
                 )
-
-            selected_cons = edited_cons[edited_cons['🔍'] == True]
-            if not selected_cons.empty:
-                sel_id = selected_cons.iloc[0]['id']
 
             selected_cons = edited_cons[edited_cons['🔍'] == True]
             if not selected_cons.empty:
@@ -514,7 +507,6 @@ if check_password():
                 cons_item = consignment_df[consignment_df['id'] == sel_id].iloc[0]
                 ref_num = cons_item['order_ref_number']
                 
-                # Fetch all items in this consignment batch
                 if pd.notna(ref_num) and str(ref_num).strip() != "":
                     batch_items = consignment_df[consignment_df['order_ref_number'] == ref_num]
                 else:
@@ -525,7 +517,6 @@ if check_password():
                     st.markdown(f"#### 🤝 Inspecting Consignment: {ref_num if pd.notna(ref_num) else 'Unreferenced'}")
                     st.write(f"**Partner:** {cons_item['partner_name']}")
                     
-                    # Generate PDF button
                     pdf_bytes = generate_consignment_pdf(str(ref_num), batch_items, str(cons_item['partner_name']), pd.to_datetime(cons_item['created_at']).strftime('%Y-%m-%d'))
                     st.download_button(label="📄 Download Official Consignment Agreement PDF", data=pdf_bytes, file_name=f"Consignment_{ref_num}.pdf", mime="application/pdf", use_container_width=True, type="secondary")
                     
@@ -543,13 +534,11 @@ if check_password():
                                 new_qty_sold = cons_item['qty_sold'] + units_sold
                                 new_status = "Completed" if new_qty_sold >= cons_item['qty_consigned'] else "Active"
                                 
-                                # 1. Update Consignment Vault
                                 supabase.table('consignment_records').update({
                                     'qty_sold': new_qty_sold,
                                     'status': new_status
                                 }).eq('id', int(sel_id)).execute()
                                 
-                                # 2. Insert into Sales (Revenue!) - without touching Finished Goods stock
                                 gross_rev = units_sold * cons_item['wholesale_price']
                                 cogs = units_sold * cons_item['unit_cogs']
                                 net_profit = gross_rev - cogs
@@ -570,7 +559,6 @@ if check_password():
         else:
             st.info("No consignment records found.")
 
-       # Consign New Goods
         st.write("---")
         with st.expander("➕ Consign New Goods (Deducts from Lab Stock)"):
             if not finished_goods.empty:
@@ -578,7 +566,6 @@ if check_password():
                     st.info("💡 Goods entered here will leave your inventory vault but will NOT count towards Gross Revenue until the partner sells them.")
                     c1, c2, c3 = st.columns(3)
                     
-                    # Removed the invalid required=True parameters here
                     partner = c1.text_input("Partner / Retailer Name")
                     ref = c2.text_input("Consignment Ref #")
                     prod = c3.selectbox("Finished Product", finished_goods['product_name'].tolist())
@@ -594,15 +581,12 @@ if check_password():
                     wholesale_p = c6.number_input("Payout to Maker per Unit ($)", value=def_retail * 0.5, min_value=0.0)
                     
                     if st.form_submit_button("Ship Consignment & Deduct Stock", type="primary"):
-                        # Added a manual check to ensure partner and ref are filled out
                         if not partner or not ref:
                             st.error("⚠️ Please provide both the Partner Name and Consignment Ref #.")
                         elif curr_stock < qty:
                             st.error(f"⚠️ You only have {curr_stock} of {prod}. Aborted.")
                         else:
-                            # 1. Deduct Stock
                             supabase.table('finished_products').update({'stock_quantity': curr_stock - qty}).eq('id', int(fg_match['id'])).execute()
-                            # 2. Add to Consignment
                             supabase.table('consignment_records').insert({
                                 "partner_name": partner, "order_ref_number": ref, "product_name": prod,
                                 "qty_consigned": qty, "unit_cogs": def_cogs, "retail_price": retail_p, "wholesale_price": wholesale_p
@@ -621,7 +605,6 @@ if check_password():
         fp_cogs_total = (finished_goods['unit_cogs'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
         fp_retail_total = (finished_goods['retail_price'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
         
-        # Add Consigned Goods Value to Assets
         cons_cogs_total = 0.0
         if not consignment_df.empty:
             active_cons = consignment_df[consignment_df['status'] == 'Active'].copy()
