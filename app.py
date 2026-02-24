@@ -561,15 +561,17 @@ if check_password():
         else:
             st.info("No consignment records found.")
 
-        # Consign New Goods
+       # Consign New Goods
         st.write("---")
         with st.expander("➕ Consign New Goods (Deducts from Lab Stock)"):
             if not finished_goods.empty:
                 with st.form("add_consignment"):
                     st.info("💡 Goods entered here will leave your inventory vault but will NOT count towards Gross Revenue until the partner sells them.")
                     c1, c2, c3 = st.columns(3)
-                    partner = c1.text_input("Partner / Retailer Name", required=True)
-                    ref = c2.text_input("Consignment Ref #", required=True)
+                    
+                    # Removed the invalid required=True parameters here
+                    partner = c1.text_input("Partner / Retailer Name")
+                    ref = c2.text_input("Consignment Ref #")
                     prod = c3.selectbox("Finished Product", finished_goods['product_name'].tolist())
                     
                     fg_match = finished_goods[finished_goods['product_name'] == prod].iloc[0]
@@ -583,7 +585,10 @@ if check_password():
                     wholesale_p = c6.number_input("Payout to Maker per Unit ($)", value=def_retail * 0.5, min_value=0.0)
                     
                     if st.form_submit_button("Ship Consignment & Deduct Stock", type="primary"):
-                        if curr_stock < qty:
+                        # Added a manual check to ensure partner and ref are filled out
+                        if not partner or not ref:
+                            st.error("⚠️ Please provide both the Partner Name and Consignment Ref #.")
+                        elif curr_stock < qty:
                             st.error(f"⚠️ You only have {curr_stock} of {prod}. Aborted.")
                         else:
                             # 1. Deduct Stock
