@@ -446,7 +446,8 @@ if check_password():
             if not finished_goods.empty:
                 pkg_opts = ["None"]
                 if not packaging.empty: pkg_opts += packaging['material_name'].tolist()
-                    # Auto-generate next ORD-XXXXXX ref
+
+                # Auto-generate next ORD-XXXXXX ref
                 next_ord_id = 200
                 if not sales_records_df.empty:
                     refs = sales_records_df['order_ref_number'].astype(str)
@@ -456,82 +457,128 @@ if check_password():
                     if not all_ids.empty:
                         next_ord_id = max(200, int(all_ids.max()) + 1)
                 default_ord_ref = f"ORD-{next_ord_id:06d}"
-                with st.form("add_sale", clear_on_submit=True):
-                    st.markdown("#### 1. Core Order Details")
-                    s1, s2, s3 = st.columns(3)
-                    fp_opts = finished_goods['product_name'].tolist()
-                    sel_product = s1.selectbox("Finished Product Sold", fp_opts)
-                    qty_sold = s2.number_input("Quantity Sold", min_value=1, value=1, step=1)
-                    sale_date = s3.date_input("Date of Sale", value=datetime.today())
-                    
-                    c1, c2, c3 = st.columns(3)
-                    client = c1.text_input("Account / Client Name", placeholder="e.g., Ralph J. Ghosn")
-                    order_ref = c2.text_input("Order Ref. Number", value=default_ord_ref)
-                    channel = c3.selectbox("Channel", ["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"])
-                    
-                    c_price, c_status = st.columns(2)
-                    fg_match = finished_goods[finished_goods['product_name'] == sel_product].iloc[0]
-                    default_price = float(fg_match['retail_price'])
-                    unit_cogs = float(fg_match['unit_cogs'])
-                    current_stock = int(fg_match['stock_quantity'])
-                    
-                    unit_price = c_price.number_input("Final Unit Price Charged ($)", value=default_price, min_value=0.0)
-                    status = c_status.selectbox("Payment Status", ["Paid", "Pending", "Cancelled"])
-                    
-                    st.write("---")
-                    st.markdown("#### 2. Shipping & Fulfillment Materials")
-                    default_f_df = pd.DataFrame([{"Fulfillment Material": "None", "Quantity": 1}])
-                    f_edited = st.data_editor(default_f_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Fulfillment Material": st.column_config.SelectboxColumn("Fulfillment Material", options=pkg_opts, required=True), "Quantity": st.column_config.NumberColumn("Quantity", min_value=1, step=1, required=True)})
-                    
-                    st.write("---")
-                    if st.form_submit_button("Log Order & Deduct All Stock", type="primary", use_container_width=True):
-                        if current_stock < qty_sold:
-                            st.error(f"⚠️ Warning: You only have {current_stock} units of {sel_product} in stock. Sale aborted.")
-                        else:
-                            gross = qty_sold * unit_price
-                            total_cogs = qty_sold * unit_cogs
-                            fulfillment_cost = 0.0
-                            pkg_updates = []
-                            shortage_flag = False
-                            
-                            f_needs = {}
-                            for _, f_row in f_edited.iterrows():
-                                item = f_row.get("Fulfillment Material")
-                                q = f_row.get("Quantity")
-                                if pd.notna(item) and item != "None" and pd.notna(q):
-                                    f_needs[item] = f_needs.get(item, 0) + int(q)
-                                        
-                            for item, q in f_needs.items():
-                                pm_match = packaging[packaging['material_name'] == item]
-                                if not pm_match.empty:
-                                    pm_id = int(pm_match.iloc[0]['id'])
-                                    pm_cost = float(pm_match.iloc[0]['cost_per_unit'])
-                                    pm_stock = int(pm_match.iloc[0]['remaining_quantity'])
-                                    if pm_stock < q:
-                                        shortage_flag = True
-                                        st.error(f"⚠️ Not enough '{item}' in Packaging Vault. Sale aborted.")
-                                        break
-                                    fulfillment_cost += (pm_cost * q)
-                                    pkg_updates.append({"id": pm_id, "new_stock": pm_stock - q})
-                            
-                            if not shortage_flag:
-                                total_cogs += fulfillment_cost
+
+                # Client selection
+                client_opts = ["-- Type manually --"]
+                if not clients_df.empty:
+                    client_opts += clients_df['client_name'].tolist()
+
+                st.markdown("#### 1. Client & Order Info")
+                h1, h2, h3 = st.columns(3)
+                client_select = h1.selectbox("Select Client", client_opts)
+                if client_select == "-- Type manually --":
+                    client_name = h2.text_input("Client Name", placeholder="e.g., Ralph J. Ghosn")
+                    client_channel = h3.selectbox("Channel", ["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"])
+                else:
+                    client_name = client_select
+                    matched_client = clients_df[clients_df['client_name'] == client_select].iloc[0]
+                    client_channel = h3.text_input("Channel", value=str(matched_client['channel']), disabled=True)
+                    h2.text_input("Client Name", value=client_name, disabled=True)
+
+                h4, h5, h6 = st.columns(3)
+                order_ref = h4.text_input("Order Ref #", value=default_ord_ref)
+                sale_date = h5.date_input("Date of Sale", value=datetime.today())
+                status = h6.selectbox("Payment Status", ["Paid", "Pending", "Cancelled"])
+
+                st.write("---")
+                st.markdown("#### 2. Order Line Items")
+                st.info("💡 Add multiple products to this order. Each row is one line item.")
+
+                fp_opts = finished_goods['product_name'].tolist()
+
+                if "order_lines" not in st.session_state:
+                    st.session_state.order_lines = [{"product": fp_opts[0], "qty": 1, "price": None}]
+
+                lines_to_remove = None
+                for i, line in enumerate(st.session_state.order_lines):
+                    lc1, lc2, lc3, lc4 = st.columns([3, 1, 1, 0.5])
+                    line['product'] = lc1.selectbox("Product", fp_opts, index=fp_opts.index(line['product']) if line['product'] in fp_opts else 0, key=f"ol_prod_{i}")
+                    line['qty'] = lc2.number_input("Qty", min_value=1, value=line['qty'], step=1, key=f"ol_qty_{i}")
+                    fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
+                    default_p = float(fg_m['retail_price'])
+                    line['price'] = lc3.number_input("Unit $", min_value=0.0, value=line['price'] if line['price'] is not None else default_p, step=0.5, key=f"ol_price_{i}")
+                    if i > 0:
+                        if lc4.button("✕", key=f"ol_del_{i}"):
+                            lines_to_remove = i
+
+                if lines_to_remove is not None:
+                    st.session_state.order_lines.pop(lines_to_remove)
+                    st.rerun()
+
+                if st.button("＋ Add Another Product"):
+                    st.session_state.order_lines.append({"product": fp_opts[0], "qty": 1, "price": None})
+                    st.rerun()
+
+                # Order preview
+                st.write("---")
+                preview_total = sum(l['qty'] * (l['price'] or 0) for l in st.session_state.order_lines)
+                st.markdown(f"**Order Total: ${preview_total:,.2f}** · {len(st.session_state.order_lines)} line item(s)")
+
+                st.write("---")
+                st.markdown("#### 3. Fulfillment Materials")
+                default_f_df = pd.DataFrame([{"Fulfillment Material": "None", "Quantity": 1}])
+                f_edited = st.data_editor(default_f_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="multiline_fulfill", column_config={"Fulfillment Material": st.column_config.SelectboxColumn("Fulfillment Material", options=pkg_opts, required=True), "Quantity": st.column_config.NumberColumn("Quantity", min_value=1, step=1, required=True)})
+
+                st.write("---")
+                if st.button("🚀 Submit Entire Order & Deduct Stock", type="primary", use_container_width=True):
+                    if not client_name:
+                        st.error("⚠️ Please select or enter a client name.")
+                    else:
+                        # Validate stock for all lines
+                        shortage = False
+                        for line in st.session_state.order_lines:
+                            fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
+                            if int(fg_m['stock_quantity']) < line['qty']:
+                                st.error(f"⚠️ Not enough {line['product']} in stock ({fg_m['stock_quantity']} available, {line['qty']} needed).")
+                                shortage = True
+                                break
+
+                        # Validate fulfillment materials
+                        f_needs = {}
+                        for _, f_row in f_edited.iterrows():
+                            item = f_row.get("Fulfillment Material")
+                            q = f_row.get("Quantity")
+                            if pd.notna(item) and item != "None" and pd.notna(q):
+                                f_needs[item] = f_needs.get(item, 0) + int(q)
+
+                        fulfillment_cost = 0.0
+                        pkg_updates = []
+                        for item, q in f_needs.items():
+                            pm_match = packaging[packaging['material_name'] == item]
+                            if not pm_match.empty:
+                                pm_id = int(pm_match.iloc[0]['id'])
+                                pm_cost = float(pm_match.iloc[0]['cost_per_unit'])
+                                pm_stock = int(pm_match.iloc[0]['remaining_quantity'])
+                                if pm_stock < q:
+                                    shortage = True
+                                    st.error(f"⚠️ Not enough '{item}' in Packaging Vault.")
+                                    break
+                                fulfillment_cost += (pm_cost * q)
+                                pkg_updates.append({"id": pm_id, "new_stock": pm_stock - q})
+
+                        if not shortage:
+                            # Split fulfillment cost across line items proportionally
+                            total_units = sum(l['qty'] for l in st.session_state.order_lines)
+
+                            for line in st.session_state.order_lines:
+                                fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
+                                unit_cogs = float(fg_m['unit_cogs'])
+                                gross = line['qty'] * line['price']
+                                line_fulfill = fulfillment_cost * (line['qty'] / total_units) if total_units > 0 else 0
+                                total_cogs = (line['qty'] * unit_cogs) + line_fulfill
                                 net = gross - total_cogs
                                 gm = (net / gross) if gross > 0 else 0.0
-                                
-                                new_fp_stock = current_stock - qty_sold
-                                supabase.table('finished_products').update({'stock_quantity': new_fp_stock}).eq('id', int(fg_match['id'])).execute()
-                                for pu in pkg_updates: supabase.table('packaging').update({'remaining_quantity': pu['new_stock']}).eq('id', pu['id']).execute()
-                                
+
+                                # Deduct FP stock
+                                new_stock = int(fg_m['stock_quantity']) - line['qty']
+                                supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_m['id'])).execute()
+
+                                # Insert sales record
                                 supabase.table('sales_records').insert({
-                                    "order_description": sel_product, "quantity": qty_sold, "unit_price": unit_price,
+                                    "order_description": line['product'], "quantity": line['qty'], "unit_price": line['price'],
                                     "gross_revenue": gross, "cogs": total_cogs, "net_profit": net,
-                                    "account": client, "order_ref_number": order_ref,
-                                    "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": channel, "status": status
-                                }).execute()
-                                
-                                st.success(f"Order logged! Deducted {qty_sold} {sel_product} and fulfillment materials from vaults.")
-                                time.sleep(1.5); st.rerun()
+                                    "account": client_name, "order_ref_number": order_ref,
+                                    "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": clie
 # --- 1.1 CLIENTS DATABASE ---
     elif menu == "Clients":
         st.title("Client Database")
