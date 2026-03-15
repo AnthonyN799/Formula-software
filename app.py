@@ -410,7 +410,8 @@ if check_password():
                 
                 st.write("##")
                 with st.container(border=True):
-                    display_ref = f"ORD-{(int(ref_num) + 200):06d}" if str(ref_num).isdigit() else ref_num                     st.markdown(f"#### 📦 Inspecting Order Reference: {display_ref if pd.notna(ref_num) else 'Unreferenced'}")
+                    display_ref = f"ORD-{(int(ref_num) + 200):06d}" if str(ref_num).isdigit() else ref_num
+                    st.markdown(f"#### 📦 Inspecting Order Reference: {display_ref if pd.notna(ref_num) else 'Unreferenced'}")
                     st.write(f"**Client:** {sale_item['account']} | **Date:** {sale_item['sale_date'].strftime('%Y-%m-%d')}")
                     st.dataframe(order_items[['order_description', 'quantity', 'unit_price', 'gross_revenue']], hide_index=True, use_container_width=True)
                     order_total = order_items['gross_revenue'].sum()
