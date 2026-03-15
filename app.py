@@ -455,7 +455,7 @@ if check_password():
                     
                     c1, c2, c3 = st.columns(3)
                     client = c1.text_input("Account / Client Name", placeholder="e.g., Ralph J. Ghosn")
-                    order_ref = c2.text_input("Order Ref. Number")
+                    order_ref = c2.text_input("Order Ref. Number", value=default_ord_ref)
                     channel = c3.selectbox("Channel", ["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"])
                     
                     c_price, c_status = st.columns(2)
