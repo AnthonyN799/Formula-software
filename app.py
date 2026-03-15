@@ -273,8 +273,8 @@ if check_password():
     inject_custom_css()
     
     # --- MODULAR PROGRAMMATIC SIDEBAR DESIGN ---
-    MODULES = {
-        "📊 Finance & Sales": ["Sales & Revenue", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
+   MODULES = {
+        "📊 Finance & Sales": ["Sales & Revenue", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
         "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
         "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"]
     }
@@ -323,7 +323,7 @@ if check_password():
     cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
     sales_records_df = fetch_vault_data('sales_records', 'sale_date')
     consignment_df = fetch_vault_data('consignment_records', 'created_at')
-
+clients_df = fetch_vault_data('clients', 'client_name')
     # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":
         st.title("Sales & Revenue Tracker")
@@ -532,7 +532,91 @@ if check_password():
                                 
                                 st.success(f"Order logged! Deducted {qty_sold} {sel_product} and fulfillment materials from vaults.")
                                 time.sleep(1.5); st.rerun()
+# --- 1.1 CLIENTS DATABASE ---
+    elif menu == "Clients":
+        st.title("Client Database")
+        st.markdown("<p style='color: #64748B;'>Manage your client and account records. Select a client to view their order history.</p>", unsafe_allow_html=True)
 
+        if not clients_df.empty:
+            display_clients = clients_df.copy()
+            display_clients.insert(0, '🔍', False)
+
+            with st.container(border=True):
+                edited_clients = st.data_editor(
+                    display_clients[['🔍', 'id', 'client_name', 'business_name', 'phone', 'email', 'channel']],
+                    use_container_width=True, hide_index=True,
+                    disabled=['id'],
+                    column_config={"id": None, "channel": st.column_config.SelectboxColumn("Channel", options=["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"], required=True)}
+                )
+                if st.button("💾 Synchronize Client Records", type="primary"):
+                    for idx, row in edited_clients.iterrows():
+                        orig = clients_df.loc[idx]
+                        if any(row[c] != orig[c] for c in ['client_name', 'business_name', 'phone', 'email', 'channel']):
+                            supabase.table('clients').update({
+                                "client_name": row['client_name'], "business_name": row['business_name'],
+                                "phone": row['phone'], "email": row['email'], "channel": row['channel']
+                            }).eq('id', int(orig['id'])).execute()
+                    st.success("Client records synchronized!")
+                    st.rerun()
+
+            selected_clients = edited_clients[edited_clients['🔍'] == True]
+            if not selected_clients.empty:
+                client_row = clients_df.loc[selected_clients.index[0]]
+                st.write("##")
+                with st.container(border=True):
+                    st.markdown(f"#### {client_row['client_name']}")
+                    c1, c2, c3 = st.columns(3)
+                    c1.write(f"**Business:** {client_row['business_name'] or 'N/A'}<br>**Channel:** {client_row['channel']}", unsafe_allow_html=True)
+                    c2.write(f"**Phone:** {client_row['phone'] or 'N/A'}<br>**Email:** {client_row['email'] or 'N/A'}", unsafe_allow_html=True)
+                    c3.write(f"**Address:** {client_row['address'] or 'N/A'}")
+                    if client_row.get('notes'):
+                        st.write(f"**Notes:** {client_row['notes']}")
+
+                    st.write("---")
+                    st.markdown("#### 📋 Order History")
+                    if not sales_records_df.empty:
+                        client_sales = sales_records_df[sales_records_df['account'] == client_row['client_name']].copy()
+                        if not client_sales.empty:
+                            client_sales['sale_date'] = pd.to_datetime(client_sales['sale_date']).dt.strftime('%Y-%m-%d')
+                            st.dataframe(client_sales[['sale_date', 'order_ref_number', 'order_description', 'quantity', 'gross_revenue', 'status']].sort_values('sale_date', ascending=False), use_container_width=True, hide_index=True, column_config={"gross_revenue": st.column_config.NumberColumn("Revenue", format="$%.2f")})
+                            total_rev = client_sales['gross_revenue'].sum()
+                            total_orders = client_sales['order_ref_number'].nunique()
+                            r1, r2 = st.columns(2)
+                            r1.metric("Lifetime Revenue", f"${total_rev:,.2f}")
+                            r2.metric("Total Orders", f"{total_orders}")
+                        else:
+                            st.info("No orders found for this client.")
+                    else:
+                        st.info("No sales records in the system yet.")
+
+                    with st.expander("System Actions"):
+                        del_pass = st.text_input("Authorization Passcode", type="password", key="del_client")
+                        if st.button("Erase Client Record") and del_pass == "lab2026":
+                            supabase.table('clients').delete().eq('id', int(client_row['id'])).execute()
+                            st.rerun()
+        else:
+            st.info("No clients registered yet.")
+
+        st.write("---")
+        with st.expander("➕ Register New Client"):
+            with st.form("add_client", clear_on_submit=True):
+                ac1, ac2 = st.columns(2)
+                new_name = ac1.text_input("Client Name *")
+                new_biz = ac2.text_input("Clinic / Business Name")
+                ac3, ac4 = st.columns(2)
+                new_phone = ac3.text_input("Phone")
+                new_email = ac4.text_input("Email")
+                new_addr = st.text_input("Address")
+                ac5, ac6 = st.columns(2)
+                new_channel = ac5.selectbox("Channel", ["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"])
+                new_notes = ac6.text_input("Notes")
+                if st.form_submit_button("Register Client", type="primary") and new_name:
+                    supabase.table('clients').insert({
+                        "client_name": new_name, "business_name": new_biz, "phone": new_phone,
+                        "email": new_email, "address": new_addr, "channel": new_channel, "notes": new_notes
+                    }).execute()
+                    st.success(f"Client '{new_name}' registered!")
+                    time.sleep(1); st.rerun()
     # --- 1.5 CONSIGNMENT TRACKER ---
     elif menu == "Consignment Tracker":
         st.title("Consignment Agreements")
