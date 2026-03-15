@@ -574,11 +574,7 @@ if check_password():
                                 supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_m['id'])).execute()
 
                                 # Insert sales record
-                                supabase.table('sales_records').insert({
-                                    "order_description": line['product'], "quantity": line['qty'], "unit_price": line['price'],
-                                    "gross_revenue": gross, "cogs": total_cogs, "net_profit": net,
-                                    "account": client_name, "order_ref_number": order_ref,
-                                    "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": clie
+                                supabase.table('sales_records').insert({"order_description": line['product'], "quantity": line['qty'], "unit_price": line['price'], "gross_revenue": gross, "cogs": total_cogs, "net_profit": net, "account": client_name, "order_ref_number": order_ref, "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": client_channel, "status": status}).execute()
 # --- 1.1 CLIENTS DATABASE ---
     elif menu == "Clients":
         st.title("Client Database")
