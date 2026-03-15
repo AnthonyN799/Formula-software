@@ -61,7 +61,7 @@ def generate_order_pdf(order_ref, items_df, client_name, date_str):
     pdf.set_font("Arial", "B", 11)
     pdf.cell(100, 8, f"Billed To: {client_name}")
     pdf.cell(0, 8, f"Date: {date_str}", ln=True, align="R")
-    pdf.cell(0, 8, f"Order Ref: {order_ref}", ln=True, align="R")
+    pdf.cell(0, 8, f"Order Ref: ORD-{(int(order_ref) + 200):06d}" if str(order_ref).isdigit() else f"Order Ref: {order_ref}", ln=True, align="R")
     pdf.ln(5)
     pdf.set_font("Arial", "B", 10)
     pdf.cell(90, 8, "Product Description", border=1)
@@ -410,7 +410,7 @@ if check_password():
                 
                 st.write("##")
                 with st.container(border=True):
-                    st.markdown(f"#### 📦 Inspecting Order Reference: {ref_num if pd.notna(ref_num) else 'Unreferenced'}")
+                    display_ref = f"ORD-{(int(ref_num) + 200):06d}" if str(ref_num).isdigit() else ref_num                     st.markdown(f"#### 📦 Inspecting Order Reference: {display_ref if pd.notna(ref_num) else 'Unreferenced'}")
                     st.write(f"**Client:** {sale_item['account']} | **Date:** {sale_item['sale_date'].strftime('%Y-%m-%d')}")
                     st.dataframe(order_items[['order_description', 'quantity', 'unit_price', 'gross_revenue']], hide_index=True, use_container_width=True)
                     order_total = order_items['gross_revenue'].sum()
@@ -418,7 +418,7 @@ if check_password():
                     col_pdf, col_rev = st.columns(2)
                     with col_pdf:
                         pdf_bytes = generate_order_pdf(str(ref_num), order_items, str(sale_item['account']), sale_item['sale_date'].strftime('%Y-%m-%d'))
-                        st.download_button(label="📄 Download PDF Order Summary", data=pdf_bytes, file_name=f"TherapeuticOils_Order_{ref_num}.pdf", mime="application/pdf", use_container_width=True)
+                        file_ref = f"ORD-{(int(ref_num) + 200):06d}" if str(ref_num).isdigit() else ref_num                         st.download_button(label="📄 Download PDF Order Summary", data=pdf_bytes, file_name=f"TherapeuticOils_Order_{file_ref}.pdf", mime="application/pdf", use_container_width=True)
                     with col_rev:
                         with st.expander("⚠️ System Actions: Reverse Line Item"):
                             rev_pass = st.text_input("Authorization Passcode", type="password", key=f"rev_{sel_id}")
@@ -444,7 +444,16 @@ if check_password():
             if not finished_goods.empty:
                 pkg_opts = ["None"]
                 if not packaging.empty: pkg_opts += packaging['material_name'].tolist()
-
+                    # Auto-generate next ORD-XXXXXX ref
+                next_ord_id = 200
+                if not sales_records_df.empty:
+                    refs = sales_records_df['order_ref_number'].astype(str)
+                    new_fmt = refs.str.extract(r'ORD-(\d+)')[0].dropna().astype(int)
+                    old_fmt = refs[refs.str.match(r'^\d+$')].astype(int) + 200
+                    all_ids = pd.concat([new_fmt, old_fmt]).dropna()
+                    if not all_ids.empty:
+                        next_ord_id = max(200, int(all_ids.max()) + 1)
+                default_ord_ref = f"ORD-{next_ord_id:06d}"
                 with st.form("add_sale", clear_on_submit=True):
                     st.markdown("#### 1. Core Order Details")
                     s1, s2, s3 = st.columns(3)
