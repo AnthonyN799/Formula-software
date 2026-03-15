@@ -273,7 +273,7 @@ if check_password():
     inject_custom_css()
     
     # --- MODULAR PROGRAMMATIC SIDEBAR DESIGN ---
-   MODULES = {
+    MODULES = {
         "📊 Finance & Sales": ["Sales & Revenue", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
         "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
         "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"]
@@ -323,7 +323,7 @@ if check_password():
     cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
     sales_records_df = fetch_vault_data('sales_records', 'sale_date')
     consignment_df = fetch_vault_data('consignment_records', 'created_at')
-clients_df = fetch_vault_data('clients', 'client_name')
+    clients_df = fetch_vault_data('clients', 'client_name')
     # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":
         st.title("Sales & Revenue Tracker")
