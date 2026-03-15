@@ -419,7 +419,8 @@ if check_password():
                     col_pdf, col_rev = st.columns(2)
                     with col_pdf:
                         pdf_bytes = generate_order_pdf(str(ref_num), order_items, str(sale_item['account']), sale_item['sale_date'].strftime('%Y-%m-%d'))
-                        file_ref = f"ORD-{(int(ref_num) + 200):06d}" if str(ref_num).isdigit() else ref_num                         st.download_button(label="📄 Download PDF Order Summary", data=pdf_bytes, file_name=f"TherapeuticOils_Order_{file_ref}.pdf", mime="application/pdf", use_container_width=True)
+                        file_ref = f"ORD-{(int(ref_num) + 200):06d}" if str(ref_num).isdigit() else ref_num
+                        st.download_button(label="📄 Download PDF Order Summary", data=pdf_bytes, file_name=f"TherapeuticOils_Order_{file_ref}.pdf", mime="application/pdf", use_container_width=True)
                     with col_rev:
                         with st.expander("⚠️ System Actions: Reverse Line Item"):
                             rev_pass = st.text_input("Authorization Passcode", type="password", key=f"rev_{sel_id}")
