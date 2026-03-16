@@ -604,11 +604,7 @@ if check_password():
                             for line in st.session_state.order_lines:
                                 fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
                                 unit_cogs = float(fg_m['unit_cogs'])
-                                line_disc_pct = line.get('disc', 0) / 100
-                                gross_before_disc = line['qty'] * line['price']
-                                line_disc_amt = gross_before_disc * line_disc_pct
-                                order_disc_share = ord_disc * (gross_before_disc / preview_subtotal) if preview_subtotal > 0 else 0
-                                gross = gross_before_disc - line_disc_amt - order_disc_share
+                                gross = line['qty'] * line['price']
                                 line_fulfill = fulfillment_cost * (line['qty'] / total_units) if total_units > 0 else 0
                                 total_cogs = (line['qty'] * unit_cogs) + line_fulfill
                                 net = gross - total_cogs
