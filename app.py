@@ -511,11 +511,20 @@ if check_password():
 
                 # Order preview
                 st.write("---")
-                preview_total = sum(l['qty'] * (l['price'] or 0) for l in st.session_state.order_lines)
-                st.markdown(f"**Order Total: ${preview_total:,.2f}** · {len(st.session_state.order_lines)} line item(s)")
+                st.write("---")
+                st.markdown("#### 3. Order Discount")
+                ord_disc = st.number_input("Order-Level Discount ($)", min_value=0.0, value=0.0, step=1.0, key="ord_disc")
+
+                preview_subtotal = sum(l['qty'] * (l['price'] or 0) * (1 - l.get('disc', 0) / 100) for l in st.session_state.order_lines)
+                preview_total = max(0, preview_subtotal - ord_disc)
+                preview_savings = sum(l['qty'] * (l['price'] or 0) * (l.get('disc', 0) / 100) for l in st.session_state.order_lines) + ord_disc
+                st.markdown(f"**Subtotal (after line discounts): ${preview_subtotal:,.2f}**")
+                if preview_savings > 0:
+                    st.markdown(f"**Total Savings: -${preview_savings:,.2f}**")
+                st.markdown(f"### Order Total: ${preview_total:,.2f} · {len(st.session_state.order_lines)} line item(s)")
 
                 st.write("---")
-                st.markdown("#### 3. Fulfillment Materials")
+                st.markdown("#### 4. Fulfillment Materials")
                 default_f_df = pd.DataFrame([{"Fulfillment Material": "None", "Quantity": 1}])
                 f_edited = st.data_editor(default_f_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="multiline_fulfill", column_config={"Fulfillment Material": st.column_config.SelectboxColumn("Fulfillment Material", options=pkg_opts, required=True), "Quantity": st.column_config.NumberColumn("Quantity", min_value=1, step=1, required=True)})
 
@@ -563,7 +572,11 @@ if check_password():
                             for line in st.session_state.order_lines:
                                 fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
                                 unit_cogs = float(fg_m['unit_cogs'])
-                                gross = line['qty'] * line['price']
+                                line_disc_pct = line.get('disc', 0) / 100
+                                gross_before_disc = line['qty'] * line['price']
+                                line_disc_amt = gross_before_disc * line_disc_pct
+                                order_disc_share = ord_disc * (gross_before_disc / preview_subtotal) if preview_subtotal > 0 else 0
+                                gross = gross_before_disc - line_disc_amt - order_disc_share
                                 line_fulfill = fulfillment_cost * (line['qty'] / total_units) if total_units > 0 else 0
                                 total_cogs = (line['qty'] * unit_cogs) + line_fulfill
                                 net = gross - total_cogs
