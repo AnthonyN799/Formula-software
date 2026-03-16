@@ -414,8 +414,35 @@ if check_password():
                     st.markdown(f"#### 📦 Inspecting Order Reference: {display_ref if pd.notna(ref_num) else 'Unreferenced'}")
                     st.write(f"**Client:** {sale_item['account']} | **Date:** {sale_item['sale_date'].strftime('%Y-%m-%d')}")
                     st.dataframe(order_items[['order_description', 'quantity', 'unit_price', 'gross_revenue']], hide_index=True, use_container_width=True)
-                    order_total = order_items['gross_revenue'].sum()
+                   order_total = order_items['gross_revenue'].sum()
                     st.metric("Total Order Value", f"${order_total:,.2f}")
+
+                    with st.expander("✏️ Edit Order Pricing & Apply Discounts"):
+                        edit_rows = []
+                        for _, orow in order_items.iterrows():
+                            edit_rows.append({"id": int(orow['id']), "Product": orow['order_description'], "Qty": int(orow['quantity']), "Unit Price": float(orow['unit_price']), "Disc %": 0.0, "Current Revenue": float(orow['gross_revenue'])})
+                        edit_order_df = pd.DataFrame(edit_rows)
+                        edited_order = st.data_editor(edit_order_df, use_container_width=True, hide_index=True, disabled=['id', 'Product', 'Qty', 'Current Revenue'], column_config={"id": None, "Current Revenue": st.column_config.NumberColumn(format="$%.2f"), "Unit Price": st.column_config.NumberColumn(format="$%.2f"), "Disc %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=5.0)})
+                        flat_disc = st.number_input("Order-Level Flat Discount ($)", min_value=0.0, value=0.0, step=1.0, key="edit_ord_disc")
+                        new_subtotal = sum(r['Qty'] * r['Unit Price'] * (1 - r['Disc %'] / 100) for _, r in edited_order.iterrows())
+                        new_total = max(0, new_subtotal - flat_disc)
+                        st.markdown(f"**New Order Total: ${new_total:,.2f}**")
+                        if st.button("💾 Apply Changes to This Order", type="primary"):
+                            total_lines = len(edited_order)
+                            for _, erow in edited_order.iterrows():
+                                line_gross_before = erow['Qty'] * erow['Unit Price']
+                                line_disc_amt = line_gross_before * (erow['Disc %'] / 100)
+                                flat_share = flat_disc / total_lines if total_lines > 0 else 0
+                                new_gross = line_gross_before - line_disc_amt - flat_share
+                                orig_row = order_items[order_items['id'] == erow['id']].iloc[0]
+                                orig_cogs = float(orig_row['cogs'])
+                                new_net = new_gross - orig_cogs
+                                new_gm = (new_net / new_gross) if new_gross > 0 else 0.0
+                                supabase.table('sales_records').update({"unit_price": float(erow['Unit Price']), "gross_revenue": float(new_gross), "net_profit": float(new_net), "gm": float(new_gm)}).eq('id', int(erow['id'])).execute()
+                            st.success("Order updated with new pricing!")
+                            time.sleep(1)
+                            st.rerun()
+
                     col_pdf, col_rev = st.columns(2)
                     with col_pdf:
                         pdf_bytes = generate_order_pdf(str(ref_num), order_items, str(sale_item['account']), sale_item['sale_date'].strftime('%Y-%m-%d'))
