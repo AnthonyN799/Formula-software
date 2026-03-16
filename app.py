@@ -423,7 +423,7 @@ if check_password():
                             edit_rows.append({"id": int(orow['id']), "Product": orow['order_description'], "Qty": int(orow['quantity']), "Unit Price": float(orow['unit_price']), "Disc %": 0.0, "Current Revenue": float(orow['gross_revenue'])})
                         edit_order_df = pd.DataFrame(edit_rows)
                         edited_order = st.data_editor(edit_order_df, use_container_width=True, hide_index=True, disabled=['id', 'Product', 'Qty', 'Current Revenue'], column_config={"id": None, "Current Revenue": st.column_config.NumberColumn(format="$%.2f"), "Unit Price": st.column_config.NumberColumn(format="$%.2f"), "Disc %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=5.0)})
-                        flat_disc = st.number_input("Order-Level Flat Discount ($)", min_value=0.0, value=0.0, step=1.0, key="edit_ord_disc")
+                        flat_disc = st.number_input("Order-Level Flat Discount ($)", min_value=0.0, value=0.0, step=1.0, key="edit_ord_disc")                         order_note = st.text_input("Order Note / Comment", placeholder="e.g., 10% loyalty discount applied", key="edit_ord_note")
                         new_subtotal = sum(r['Qty'] * r['Unit Price'] * (1 - r['Disc %'] / 100) for _, r in edited_order.iterrows())
                         new_total = max(0, new_subtotal - flat_disc)
                         st.markdown(f"**New Order Total: ${new_total:,.2f}**")
@@ -438,7 +438,7 @@ if check_password():
                                 orig_cogs = float(orig_row['cogs'])
                                 new_net = new_gross - orig_cogs
                                 new_gm = (new_net / new_gross) if new_gross > 0 else 0.0
-                                supabase.table('sales_records').update({"unit_price": float(erow['Unit Price']), "gross_revenue": float(new_gross), "net_profit": float(new_net), "gm": float(new_gm)}).eq('id', int(erow['id'])).execute()
+                                update_data = {"unit_price": float(erow['Unit Price']), "gross_revenue": float(new_gross), "net_profit": float(new_net), "gm": float(new_gm)}                                 if order_note: update_data["notes"] = order_note                                 supabase.table('sales_records').update(update_data).eq('id', int(erow['id'])).execute()
                             st.success("Order updated with new pricing!")
                             time.sleep(1)
                             st.rerun()
