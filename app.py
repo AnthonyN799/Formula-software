@@ -439,7 +439,7 @@ if check_password():
                                 orig_cogs = float(orig_row['cogs'])
                                 new_net = new_gross - orig_cogs
                                 new_gm = (new_net / new_gross) if new_gross > 0 else 0.0
-                                update_data = {"unit_price": float(erow['Unit Price']), "gross_revenue": float(new_gross), "net_profit": float(new_net), "gm": float(new_gm)}
+                                update_data = {"unit_price": float(erow['Unit Price'])}
                                 if order_note: update_data["notes"] = order_note
                                 supabase.table('sales_records').update(update_data).eq('id', int(erow['id'])).execute()
                             st.success("Order updated with new pricing!")
