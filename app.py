@@ -414,7 +414,7 @@ if check_password():
                     st.markdown(f"#### 📦 Inspecting Order Reference: {display_ref if pd.notna(ref_num) else 'Unreferenced'}")
                     st.write(f"**Client:** {sale_item['account']} | **Date:** {sale_item['sale_date'].strftime('%Y-%m-%d')}")
                     st.dataframe(order_items[['order_description', 'quantity', 'unit_price', 'gross_revenue']], hide_index=True, use_container_width=True)
-                   order_total = order_items['gross_revenue'].sum()
+                    order_total = order_items['gross_revenue'].sum()
                     st.metric("Total Order Value", f"${order_total:,.2f}")
 
                     with st.expander("✏️ Edit Order Pricing & Apply Discounts"):
