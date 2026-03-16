@@ -491,14 +491,16 @@ if check_password():
 
                 lines_to_remove = None
                 for i, line in enumerate(st.session_state.order_lines):
-                    lc1, lc2, lc3, lc4 = st.columns([3, 1, 1, 0.5])
+                    lc1, lc2, lc3, lc4, lc5 = st.columns([3, 1, 1, 0.8, 0.5])
                     line['product'] = lc1.selectbox("Product", fp_opts, index=fp_opts.index(line['product']) if line['product'] in fp_opts else 0, key=f"ol_prod_{i}")
                     line['qty'] = lc2.number_input("Qty", min_value=1, value=line['qty'], step=1, key=f"ol_qty_{i}")
                     fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
                     default_p = float(fg_m['retail_price'])
                     line['price'] = lc3.number_input("Unit $", min_value=0.0, value=line['price'] if line['price'] is not None else default_p, step=0.5, key=f"ol_price_{i}")
+                    if 'disc' not in line: line['disc'] = 0.0
+                    line['disc'] = lc4.number_input("Disc %", min_value=0.0, max_value=100.0, value=line['disc'], step=5.0, key=f"ol_disc_{i}")
                     if i > 0:
-                        if lc4.button("✕", key=f"ol_del_{i}"):
+                        if lc5.button("✕", key=f"ol_del_{i}"):
                             lines_to_remove = i
 
                 if lines_to_remove is not None:
