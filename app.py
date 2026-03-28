@@ -274,21 +274,33 @@ def check_password():
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h1 style='text-align: center; font-weight: 300;'>Therapeutic Oils</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #64748B;'>Secure Laboratory Portal</p>", unsafe_allow_html=True)
-        password = st.text_input("Passcode", type="password", placeholder="Enter team passcode...")
+        username = st.text_input("Username", placeholder="Enter your name...")
+        password = st.text_input("Passcode", type="password", placeholder="Enter passcode...")
         if st.button("Authenticate", use_container_width=True, type="primary"):
-            if password == "lab2026":
-                st.session_state["authenticated"] = True; st.rerun()
-            else: st.error("Incorrect passcode.")
+            users = {"Anthony": {"pass": "lab2026", "role": "admin"}, "Fadia": {"pass": "Fadia123", "role": "cook"}}
+            matched = users.get(username)
+            if matched and password == matched["pass"]:
+                st.session_state["authenticated"] = True
+                st.session_state["user_role"] = matched["role"]
+                st.session_state["user_name"] = username
+                st.rerun()
+            else: st.error("Incorrect username or passcode.")
     return False
 
 # --- Main App Execution ---
 if check_password():
     inject_custom_css()
-    MODULES = {
-        "📊 Finance & Sales": ["Sales & Revenue", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
-        "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
-        "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"]
-    }
+    user_role = st.session_state.get("user_role", "admin")
+    if user_role == "admin":
+        MODULES = {
+            "📊 Finance & Sales": ["Sales & Revenue", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
+            "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
+            "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"]
+        }
+    else:
+        MODULES = {
+            "📦 Modules": ["Formula Library", "Stock Levels"]
+        }
     if "active_module" not in st.session_state: st.session_state.active_module = "📊 Finance & Sales"
     if "active_nav" not in st.session_state: st.session_state.active_nav = "Sales & Revenue"
     with st.sidebar:
@@ -315,7 +327,8 @@ if check_password():
             st.rerun()
         menu = st.session_state.active_nav
         st.write("<br><br>", unsafe_allow_html=True)
-        if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.rerun()
+        st.markdown(f"<p style='color: #64748B; font-size: 0.8rem; text-align: center;'>Logged in as {st.session_state.get('user_name', 'User')}</p>", unsafe_allow_html=True)
+        if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.session_state["user_role"] = None; st.session_state["user_name"] = None; st.rerun()
 
     # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":
@@ -1079,49 +1092,52 @@ if check_password():
                                 st.balloons(); clear_cache(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     st.divider()
-                    c_act1, c_act2, c_act3, c_act4 = st.columns(4)
-                    with c_act1:
-                        with st.expander("✏️ Edit Current"):
-                            if st.button("Edit Edition", use_container_width=True):
-                                st.session_state.builder = pd.DataFrame(recipe_items)
-                                st.session_state.draft_name = sel_f['formula_name']
-                                st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
-                                st.session_state.edit_formula_id = int(sel_f['id'])
-                                st.session_state.edit_fr_code = sel_f['fr_code']
-                                if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
-                                st.session_state.active_nav = "Formula Builder"
-                                clear_cache(); st.rerun()
-                    with c_act2:
-                        with st.expander("🔄 New Edition"):
-                            if st.button("Draft Version", use_container_width=True):
-                                st.session_state.builder = pd.DataFrame(recipe_items)
-                                match = re.search(r' V(\d+)$', sel_f['formula_name'])
-                                if match:
-                                    new_v = int(match.group(1)) + 1
-                                    new_name = re.sub(r' V\d+$', f' V{new_v}', sel_f['formula_name'])
-                                else:
-                                    new_name = f"{sel_f['formula_name']} V2"
-                                st.session_state.draft_name = new_name
-                                st.session_state.base_fr_code = sel_f['fr_code']
-                                st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
-                                if "edit_formula_id" in st.session_state: del st.session_state["edit_formula_id"]
-                                st.session_state.active_nav = "Formula Builder"
-                                clear_cache(); st.rerun()
-                    with c_act3:
-                        with st.expander("📋 Duplicate"):
-                            if st.button("Copy to New Base", use_container_width=True):
-                                st.session_state.builder = pd.DataFrame(recipe_items)
-                                st.session_state.draft_name = f"{sel_f['formula_name']} (Copy)"
-                                st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
-                                for k in ["edit_formula_id", "edit_fr_code", "base_fr_code"]:
-                                    if k in st.session_state: del st.session_state[k]
-                                st.session_state.active_nav = "Formula Builder"
-                                clear_cache(); st.rerun()
-                    with c_act4:
-                        with st.expander("🗑️ Erase"):
-                            del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
-                            if st.button("Permanently Delete", use_container_width=True) and del_f_pass == "lab2026":
-                                supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); clear_cache(); st.rerun()
+                    if st.session_state.get("user_role") != "admin":
+                        st.info("🔒 Read-only mode. Contact admin to edit formulas.")
+                    else:
+                        c_act1, c_act2, c_act3, c_act4 = st.columns(4)
+                        with c_act1:
+                            with st.expander("✏️ Edit Current"):
+                                if st.button("Edit Edition", use_container_width=True):
+                                    st.session_state.builder = pd.DataFrame(recipe_items)
+                                    st.session_state.draft_name = sel_f['formula_name']
+                                    st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
+                                    st.session_state.edit_formula_id = int(sel_f['id'])
+                                    st.session_state.edit_fr_code = sel_f['fr_code']
+                                    if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
+                                    st.session_state.active_nav = "Formula Builder"
+                                    clear_cache(); st.rerun()
+                        with c_act2:
+                            with st.expander("🔄 New Edition"):
+                                if st.button("Draft Version", use_container_width=True):
+                                    st.session_state.builder = pd.DataFrame(recipe_items)
+                                    match = re.search(r' V(\d+)$', sel_f['formula_name'])
+                                    if match:
+                                        new_v = int(match.group(1)) + 1
+                                        new_name = re.sub(r' V\d+$', f' V{new_v}', sel_f['formula_name'])
+                                    else:
+                                        new_name = f"{sel_f['formula_name']} V2"
+                                    st.session_state.draft_name = new_name
+                                    st.session_state.base_fr_code = sel_f['fr_code']
+                                    st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
+                                    if "edit_formula_id" in st.session_state: del st.session_state["edit_formula_id"]
+                                    st.session_state.active_nav = "Formula Builder"
+                                    clear_cache(); st.rerun()
+                        with c_act3:
+                            with st.expander("📋 Duplicate"):
+                                if st.button("Copy to New Base", use_container_width=True):
+                                    st.session_state.builder = pd.DataFrame(recipe_items)
+                                    st.session_state.draft_name = f"{sel_f['formula_name']} (Copy)"
+                                    st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
+                                    for k in ["edit_formula_id", "edit_fr_code", "base_fr_code"]:
+                                        if k in st.session_state: del st.session_state[k]
+                                    st.session_state.active_nav = "Formula Builder"
+                                    clear_cache(); st.rerun()
+                        with c_act4:
+                            with st.expander("🗑️ Erase"):
+                                del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
+                                if st.button("Permanently Delete", use_container_width=True) and del_f_pass == "lab2026":
+                                    supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); clear_cache(); st.rerun()
         else:
             st.info("No formulas architected yet.")
 
@@ -1383,6 +1399,24 @@ if check_password():
                                 supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); clear_cache(); st.rerun()
                             else: st.error("Incorrect passcode.")
         else: st.info("No COGS profiles saved in the vault.")
+
+    # --- STOCK LEVELS (READ-ONLY) ---
+    elif menu == "Stock Levels":
+        d = load_tables('inventory', 'finished_goods')
+        inventory = d['inventory']; finished_goods = d['finished_goods']
+        st.title("Stock Levels")
+        st.markdown("<p style='color: #64748B;'>Read-only view of current inventory.</p>", unsafe_allow_html=True)
+        st.markdown("#### Raw Materials")
+        if not inventory.empty:
+            st.dataframe(inventory[['rm_code', 'trade_name', 'quantity_kg']].rename(columns={'rm_code': 'Code', 'trade_name': 'Material', 'quantity_kg': 'Stock (Kg)'}), use_container_width=True, hide_index=True)
+        else:
+            st.info("No raw materials registered.")
+        st.write("---")
+        st.markdown("#### Finished Products")
+        if not finished_goods.empty:
+            st.dataframe(finished_goods[['fp_code', 'product_name', 'stock_quantity']].rename(columns={'fp_code': 'Code', 'product_name': 'Product', 'stock_quantity': 'In Stock'}), use_container_width=True, hide_index=True)
+        else:
+            st.info("No finished products in stock.")
 
     # --- 9. PRODUCTION LOGS ---
     elif menu == "Production Logs":
