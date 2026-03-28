@@ -277,8 +277,8 @@ def check_password():
         username = st.text_input("Username", placeholder="Enter your name...")
         password = st.text_input("Passcode", type="password", placeholder="Enter passcode...")
         if st.button("Authenticate", use_container_width=True, type="primary"):
-            users = {"Anthony": {"pass": "lab2026", "role": "admin"}, "Fadia": {"pass": "Fadia123", "role": "cook"}}
-            matched = users.get(username)
+            users = {"anthony": {"pass": "lab2026", "role": "admin"}, "fadia": {"pass": "Fadia123", "role": "cook"}}
+            matched = users.get(username.strip().lower())
             if matched and password == matched["pass"]:
                 st.session_state["authenticated"] = True
                 st.session_state["user_role"] = matched["role"]
@@ -301,8 +301,10 @@ if check_password():
         MODULES = {
             "📦 Modules": ["Formula Library", "Stock Levels"]
         }
-    if "active_module" not in st.session_state: st.session_state.active_module = "📊 Finance & Sales"
-    if "active_nav" not in st.session_state: st.session_state.active_nav = "Sales & Revenue"
+    if "active_module" not in st.session_state or st.session_state.active_module not in MODULES:
+        st.session_state.active_module = list(MODULES.keys())[0]
+        st.session_state.active_nav = MODULES[st.session_state.active_module][0]
+    if "active_nav" not in st.session_state: st.session_state.active_nav = MODULES[st.session_state.active_module][0]
     with st.sidebar:
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
