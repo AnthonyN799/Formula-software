@@ -28,6 +28,12 @@ def inject_custom_css():
         .stButton>button[kind="primary"] { background-color: #0F172A; color: #FFFFFF; border: none; }
         .stButton>button[kind="primary"]:hover { background-color: #1E293B; }
         h1, h2, h3 { color: #0F172A; font-weight: 400; letter-spacing: -0.01em; }
+        /* Custom minimal spinner */
+        .stSpinner > div { display: flex; align-items: center; justify-content: center; }
+        .stSpinner > div > div { border-color: #0F172A !important; border-right-color: transparent !important; width: 20px !important; height: 20px !important; border-width: 2px !important; }
+        .stSpinner > div > span { font-size: 0.85rem !important; font-weight: 500 !important; color: #64748B !important; letter-spacing: 0.02em !important; margin-left: 8px !important; }
+        /* Hide default "Running..." top-right badge */
+        [data-testid="stStatusWidget"] { display: none !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -70,10 +76,11 @@ def load_tables(*names):
         'consignment': ('consignment_records', 'created_at'),
         'clients': ('clients', 'client_name'),
     }
-    result = {}
-    for name in names:
-        tbl, sort = table_map[name]
-        result[name] = fetch_vault_data(tbl, sort)
+    with st.spinner("Loading..."):
+        result = {}
+        for name in names:
+            tbl, sort = table_map[name]
+            result[name] = fetch_vault_data(tbl, sort)
     return result
 
 # --- PDF Engines ---
