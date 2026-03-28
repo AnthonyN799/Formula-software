@@ -92,13 +92,11 @@ def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
     pdf.set_font("Arial", "", 12)
     pdf.cell(0, 8, "Official Consignment Agreement", ln=True, align="C")
     pdf.ln(10)
-    
     pdf.set_font("Arial", "B", 11)
     pdf.cell(100, 8, f"Consignee (Partner): {partner_name}")
     pdf.cell(0, 8, f"Date Issued: {date_str}", ln=True, align="R")
     pdf.cell(0, 8, f"Reference #: {order_ref}", ln=True, align="R")
     pdf.ln(5)
-    
     pdf.set_font("Arial", "B", 9)
     pdf.cell(75, 8, "Product Description", border=1)
     pdf.cell(20, 8, "Qty Sent", border=1, align="C")
@@ -106,27 +104,23 @@ def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
     pdf.cell(30, 8, "Owed to Maker", border=1, align="R")
     pdf.cell(35, 8, "Max Potential", border=1, align="R")
     pdf.ln()
-    
     pdf.set_font("Arial", "", 9)
     grand_total_owed = 0.0
     for _, row in items_df.iterrows():
         wholesale = float(row['wholesale_price'])
         total_owed = float(row['qty_consigned'] * wholesale)
         grand_total_owed += total_owed
-        
         pdf.cell(75, 8, str(row['product_name'])[:35], border=1)
         pdf.cell(20, 8, str(row['qty_consigned']), border=1, align="C")
         pdf.cell(30, 8, f"${float(row['retail_price']):,.2f}", border=1, align="R")
         pdf.cell(30, 8, f"${wholesale:,.2f}", border=1, align="R")
         pdf.cell(35, 8, f"${total_owed:,.2f}", border=1, align="R")
         pdf.ln()
-        
     pdf.ln(5)
     pdf.set_font("Arial", "B", 10)
     pdf.cell(155, 8, "Total Capital Owed Upon 100% Sell-Through:", border=1, align="R")
     pdf.cell(35, 8, f"${grand_total_owed:,.2f}", border=1, align="R")
     pdf.ln(15)
-    
     pdf.set_font("Arial", "B", 10)
     pdf.cell(0, 6, "Terms of Consignment:", ln=True)
     pdf.set_font("Arial", "", 9)
@@ -149,7 +143,6 @@ def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed
     pdf.set_font("Arial", "I", 10)
     pdf.cell(0, 6, f"As of {date_str}", ln=True, align="C")
     pdf.ln(10)
-    # ASSETS
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "ASSETS", ln=True, border="B")
     pdf.set_font("Arial", "B", 10)
@@ -176,7 +169,6 @@ def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed
     pdf.cell(140, 8, "TOTAL ASSETS:")
     pdf.cell(0, 8, f"${total_assets:,.2f}", ln=True, align="R")
     pdf.ln(10)
-    # LIABILITIES
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "LIABILITIES & EQUITY", ln=True, border="B")
     pdf.set_font("Arial", "B", 10)
@@ -191,7 +183,6 @@ def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed
     pdf.cell(140, 6, "Total Liabilities:")
     pdf.cell(0, 6, f"${total_liab:,.2f}", ln=True, align="R")
     pdf.ln(4)
-    # EQUITY
     pdf.set_font("Arial", "B", 10)
     pdf.cell(0, 6, "Owner's Equity", ln=True)
     pdf.set_font("Arial", "", 10)
@@ -209,33 +200,24 @@ def generate_batch_labels_pdf(product_name, batch_number, lot_number, date_str, 
     pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 10, "THERAPEUTIC OILS - GMP BATCH LABELS", ln=True, align="C")
     pdf.ln(5)
-
-    # Label dimensions (A4 page is 210 x 297 mm)
     label_w = 90
     label_h = 45
     margin_x = 10
     margin_y = 30
     spacing_x = 10
     spacing_y = 10
-
     for i in range(copies):
         row = i // 2
         col = i % 2
         x = margin_x + col * (label_w + spacing_x)
         y = margin_y + row * (label_h + spacing_y)
-
-        # Draw outer box boundary for the physical label
         pdf.rect(x, y, label_w, label_h)
-        
-        # Content formatting inside the box
         pdf.set_xy(x, y + 5)
         pdf.set_font("Arial", "B", 12)
         pdf.cell(label_w, 6, "THERAPEUTIC OILS", ln=True, align="C")
-        
         pdf.set_xy(x, y + 13)
         pdf.set_font("Arial", "B", 10)
         pdf.cell(label_w, 5, product_name[:35], ln=True, align="C")
-        
         pdf.set_xy(x + 5, y + 22)
         pdf.set_font("Arial", "", 9)
         pdf.cell(label_w - 10, 5, f"BATCH: {batch_number}", ln=True)
@@ -243,18 +225,15 @@ def generate_batch_labels_pdf(product_name, batch_number, lot_number, date_str, 
         pdf.cell(label_w - 10, 5, f"LOT: {lot_number}", ln=True)
         pdf.set_x(x + 5)
         pdf.cell(label_w - 10, 5, f"MFG DATE: {date_str}", ln=True)
-        
         pdf.set_xy(x, y + label_h - 7)
         pdf.set_font("Arial", "I", 7)
         pdf.cell(label_w, 4, "Store in a cool, dark environment. Follow standard SOP.", ln=True, align="C")
-
     return pdf.output(dest="S").encode("latin-1")
 
 # --- Authentication Logic ---
 def check_password():
     if "authenticated" not in st.session_state: st.session_state["authenticated"] = False
     if st.session_state["authenticated"]: return True
-    
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.write("<br><br><br>", unsafe_allow_html=True)
@@ -271,46 +250,35 @@ def check_password():
 # --- Main App Execution ---
 if check_password():
     inject_custom_css()
-    
-    # --- MODULAR PROGRAMMATIC SIDEBAR DESIGN ---
     MODULES = {
         "📊 Finance & Sales": ["Sales & Revenue", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
         "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
         "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"]
     }
-    
     if "active_module" not in st.session_state: st.session_state.active_module = "📊 Finance & Sales"
     if "active_nav" not in st.session_state: st.session_state.active_nav = "Sales & Revenue"
-
     with st.sidebar:
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
-        
         st.write("##")
         st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Business Module</p>", unsafe_allow_html=True)
-        
         selected_module = st.selectbox("Module", list(MODULES.keys()), index=list(MODULES.keys()).index(st.session_state.active_module), label_visibility="collapsed")
         if selected_module != st.session_state.active_module:
             st.session_state.active_module = selected_module
             st.session_state.active_nav = MODULES[selected_module][0]
             st.rerun()
-
         st.write("---")
         st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Navigation</p>", unsafe_allow_html=True)
-        
         nav_opts = MODULES[st.session_state.active_module]
         if st.session_state.active_nav not in nav_opts:
             for mod, navs in MODULES.items():
                 if st.session_state.active_nav in navs:
                     st.session_state.active_module = mod
                     st.rerun()
-                    
         selected_nav = st.radio("Nav", nav_opts, index=nav_opts.index(st.session_state.active_nav) if st.session_state.active_nav in nav_opts else 0, label_visibility="collapsed")
-        
         if selected_nav != st.session_state.active_nav:
             st.session_state.active_nav = selected_nav
             st.rerun()
-            
         menu = st.session_state.active_nav
         st.write("<br><br>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.rerun()
@@ -324,29 +292,25 @@ if check_password():
     sales_records_df = fetch_vault_data('sales_records', 'sale_date')
     consignment_df = fetch_vault_data('consignment_records', 'created_at')
     clients_df = fetch_vault_data('clients', 'client_name')
+
     # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":
         st.title("Sales & Revenue Tracker")
         st.markdown("<p style='color: #64748B;'>Monitor order volume, track pending receivables, and manage vault stock deductions.</p>", unsafe_allow_html=True)
-        
         if not sales_records_df.empty:
             sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'])
             sales_records_df['Year'] = sales_records_df['sale_date'].dt.year
             years_available = sorted(sales_records_df['Year'].unique().tolist(), reverse=True)
-            
             c_year, c_target = st.columns([1, 3])
             selected_year = c_year.selectbox("Fiscal Year", years_available)
             annual_target = c_target.number_input("Annual Revenue Target ($)", value=50000, step=5000)
-            
             yr_df = sales_records_df[sales_records_df['Year'] == selected_year]
             yr_rev = yr_df['gross_revenue'].sum()
             yr_profit = yr_df['net_profit'].sum()
             yr_units = yr_df['quantity'].sum()
             avg_margin = (yr_profit / yr_rev * 100) if yr_rev > 0 else 0.0
-            
             global_pending_df = sales_records_df[sales_records_df['status'] == 'Pending'].copy()
             global_pending_rev = global_pending_df['gross_revenue'].sum()
-            
             st.write("---")
             k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric(f"{selected_year} Gross Revenue", f"${yr_rev:,.2f}")
@@ -354,11 +318,9 @@ if check_password():
             k3.metric("Net Profit", f"${yr_profit:,.2f}")
             k4.metric("Avg. Profit Margin", f"{avg_margin:.1f}%")
             k5.metric("Total Units Sold", f"{yr_units:,}")
-            
             progress_pct = min(yr_rev / annual_target, 1.0) if annual_target > 0 else 0.0
             st.write(f"**Annual Target Progress:** {progress_pct*100:.1f}% (${yr_rev:,.0f} / ${annual_target:,.0f})")
             st.progress(progress_pct)
-            
             if not global_pending_df.empty:
                 st.write("")
                 with st.expander(f"⚠️ View Aging Receivables ({len(global_pending_df)} Unpaid Line Items)"):
@@ -372,13 +334,11 @@ if check_password():
                     aging_df = global_pending_df.sort_values(by='Days Pending', ascending=False)
                     aging_df['sale_date'] = aging_df['sale_date'].dt.strftime('%Y-%m-%d')
                     st.dataframe(aging_df[['Aging', 'sale_date', 'account', 'order_ref_number', 'order_description', 'gross_revenue']], use_container_width=True, hide_index=True, column_config={"gross_revenue": st.column_config.NumberColumn("Amount Due", format="$%.2f")})
-            
             st.write("---")
             st.markdown("#### Transaction Ledger & Order Management")
             display_sales = yr_df.copy().sort_values('sale_date', ascending=False)
             display_sales['sale_date'] = display_sales['sale_date'].dt.strftime('%Y-%m-%d')
             display_sales.insert(0, '🔍', False)
-            
             with st.container(border=True):
                 edited_sales = st.data_editor(
                     display_sales[['🔍', 'id', 'sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'gross_revenue', 'net_profit', 'channel', 'status']], 
@@ -397,7 +357,6 @@ if check_password():
                             supabase.table('sales_records').update({'status': row['status']}).eq('id', int(row['id'])).execute()
                     st.success("Ledger payments synchronized!")
                     st.rerun()
-
             selected_sales = edited_sales[edited_sales['🔍'] == True]
             if not selected_sales.empty:
                 sel_id = selected_sales.iloc[0]['id']
@@ -407,7 +366,6 @@ if check_password():
                     order_items = yr_df[yr_df['order_ref_number'] == ref_num]
                 else:
                     order_items = pd.DataFrame([sale_item])
-                
                 st.write("##")
                 with st.container(border=True):
                     display_ref = f"ORD-{(int(ref_num) + 200):06d}" if str(ref_num).isdigit() else ref_num
@@ -416,7 +374,6 @@ if check_password():
                     st.dataframe(order_items[['order_description', 'quantity', 'unit_price', 'gross_revenue']], hide_index=True, use_container_width=True)
                     order_total = order_items['gross_revenue'].sum()
                     st.metric("Total Order Value", f"${order_total:,.2f}")
-
                     with st.expander("✏️ Edit Order Pricing & Apply Discounts"):
                         edit_rows = []
                         for _, orow in order_items.iterrows():
@@ -429,23 +386,18 @@ if check_password():
                         new_total = max(0, new_subtotal - flat_disc)
                         st.markdown(f"**New Order Total: ${new_total:,.2f}**")
                         if st.button("💾 Apply Changes to This Order", type="primary"):
-                            total_lines = len(edited_order)
                             for _, erow in edited_order.iterrows():
-                                line_gross_before = erow['Qty'] * erow['Unit Price']
-                                line_disc_amt = line_gross_before * (erow['Disc %'] / 100)
-                                flat_share = flat_disc / total_lines if total_lines > 0 else 0
-                                new_gross = line_gross_before - line_disc_amt - flat_share
-                                orig_row = order_items[order_items['id'] == erow['id']].iloc[0]
-                                orig_cogs = float(orig_row['cogs'])
-                                new_net = new_gross - orig_cogs
-                                new_gm = (new_net / new_gross) if new_gross > 0 else 0.0
                                 update_data = {"unit_price": float(erow['Unit Price'])}
-                                if order_note: update_data["notes"] = order_note
+                                disc_parts = []
+                                if erow['Disc %'] > 0: disc_parts.append(f"{erow['Disc %']:.0f}% line discount")
+                                if flat_disc > 0: disc_parts.append(f"${flat_disc:.2f} order discount")
+                                note_text = order_note if order_note else ""
+                                if disc_parts: note_text = (note_text + " | " if note_text else "") + ", ".join(disc_parts)
+                                if note_text: update_data["notes"] = note_text
                                 supabase.table('sales_records').update(update_data).eq('id', int(erow['id'])).execute()
                             st.success("Order updated with new pricing!")
                             time.sleep(1)
                             st.rerun()
-
                     col_pdf, col_rev = st.columns(2)
                     with col_pdf:
                         pdf_bytes = generate_order_pdf(str(ref_num), order_items, str(sale_item['account']), sale_item['sale_date'].strftime('%Y-%m-%d'))
@@ -470,14 +422,11 @@ if check_password():
                                     st.error("Incorrect passcode.")
         else:
             st.info("No sales records imported or logged yet.")
-
         st.write("---")
         with st.expander("➕ Log New Sales Order", expanded=False):
             if not finished_goods.empty:
                 pkg_opts = ["None"]
                 if not packaging.empty: pkg_opts += packaging['material_name'].tolist()
-
-                # Auto-generate next ORD-XXXXXX ref
                 next_ord_id = 200
                 if not sales_records_df.empty:
                     refs = sales_records_df['order_ref_number'].astype(str)
@@ -487,12 +436,9 @@ if check_password():
                     if not all_ids.empty:
                         next_ord_id = max(200, int(all_ids.max()) + 1)
                 default_ord_ref = f"ORD-{next_ord_id:06d}"
-
-                # Client selection
                 client_opts = ["-- Type manually --"]
                 if not clients_df.empty:
                     client_opts += clients_df['client_name'].tolist()
-
                 st.markdown("#### 1. Client & Order Info")
                 h1, h2, h3 = st.columns(3)
                 client_select = h1.selectbox("Select Client", client_opts)
@@ -504,21 +450,16 @@ if check_password():
                     matched_client = clients_df[clients_df['client_name'] == client_select].iloc[0]
                     client_channel = h3.text_input("Channel", value=str(matched_client['channel']), disabled=True)
                     h2.text_input("Client Name", value=client_name, disabled=True)
-
                 h4, h5, h6 = st.columns(3)
                 order_ref = h4.text_input("Order Ref #", value=default_ord_ref)
                 sale_date = h5.date_input("Date of Sale", value=datetime.today())
                 status = h6.selectbox("Payment Status", ["Paid", "Pending", "Cancelled"])
-
                 st.write("---")
                 st.markdown("#### 2. Order Line Items")
                 st.info("💡 Add multiple products to this order. Each row is one line item.")
-
                 fp_opts = finished_goods['product_name'].tolist()
-
                 if "order_lines" not in st.session_state:
                     st.session_state.order_lines = [{"product": fp_opts[0], "qty": 1, "price": None}]
-
                 lines_to_remove = None
                 for i, line in enumerate(st.session_state.order_lines):
                     lc1, lc2, lc3, lc4, lc5 = st.columns([3, 1, 1, 0.8, 0.5])
@@ -532,21 +473,15 @@ if check_password():
                     if i > 0:
                         if lc5.button("✕", key=f"ol_del_{i}"):
                             lines_to_remove = i
-
                 if lines_to_remove is not None:
                     st.session_state.order_lines.pop(lines_to_remove)
                     st.rerun()
-
                 if st.button("＋ Add Another Product"):
                     st.session_state.order_lines.append({"product": fp_opts[0], "qty": 1, "price": None})
                     st.rerun()
-
-                # Order preview
-                st.write("---")
                 st.write("---")
                 st.markdown("#### 3. Order Discount")
                 ord_disc = st.number_input("Order-Level Discount ($)", min_value=0.0, value=0.0, step=1.0, key="ord_disc")
-
                 preview_subtotal = sum(l['qty'] * (l['price'] or 0) * (1 - l.get('disc', 0) / 100) for l in st.session_state.order_lines)
                 preview_total = max(0, preview_subtotal - ord_disc)
                 preview_savings = sum(l['qty'] * (l['price'] or 0) * (l.get('disc', 0) / 100) for l in st.session_state.order_lines) + ord_disc
@@ -554,18 +489,15 @@ if check_password():
                 if preview_savings > 0:
                     st.markdown(f"**Total Savings: -${preview_savings:,.2f}**")
                 st.markdown(f"### Order Total: ${preview_total:,.2f} · {len(st.session_state.order_lines)} line item(s)")
-
                 st.write("---")
                 st.markdown("#### 4. Fulfillment Materials")
                 default_f_df = pd.DataFrame([{"Fulfillment Material": "None", "Quantity": 1}])
                 f_edited = st.data_editor(default_f_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="multiline_fulfill", column_config={"Fulfillment Material": st.column_config.SelectboxColumn("Fulfillment Material", options=pkg_opts, required=True), "Quantity": st.column_config.NumberColumn("Quantity", min_value=1, step=1, required=True)})
-
                 st.write("---")
                 if st.button("🚀 Submit Entire Order & Deduct Stock", type="primary", use_container_width=True):
                     if not client_name:
                         st.error("⚠️ Please select or enter a client name.")
                     else:
-                        # Validate stock for all lines
                         shortage = False
                         for line in st.session_state.order_lines:
                             fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
@@ -573,15 +505,12 @@ if check_password():
                                 st.error(f"⚠️ Not enough {line['product']} in stock ({fg_m['stock_quantity']} available, {line['qty']} needed).")
                                 shortage = True
                                 break
-
-                        # Validate fulfillment materials
                         f_needs = {}
                         for _, f_row in f_edited.iterrows():
                             item = f_row.get("Fulfillment Material")
                             q = f_row.get("Quantity")
                             if pd.notna(item) and item != "None" and pd.notna(q):
                                 f_needs[item] = f_needs.get(item, 0) + int(q)
-
                         fulfillment_cost = 0.0
                         pkg_updates = []
                         for item, q in f_needs.items():
@@ -596,11 +525,8 @@ if check_password():
                                     break
                                 fulfillment_cost += (pm_cost * q)
                                 pkg_updates.append({"id": pm_id, "new_stock": pm_stock - q})
-
                         if not shortage:
-                            # Split fulfillment cost across line items proportionally
                             total_units = sum(l['qty'] for l in st.session_state.order_lines)
-
                             for line in st.session_state.order_lines:
                                 fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
                                 unit_cogs = float(fg_m['unit_cogs'])
@@ -609,40 +535,39 @@ if check_password():
                                 total_cogs = (line['qty'] * unit_cogs) + line_fulfill
                                 net = gross - total_cogs
                                 gm = (net / gross) if gross > 0 else 0.0
-
-                                # Deduct FP stock
                                 new_stock = int(fg_m['stock_quantity']) - line['qty']
                                 supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_m['id'])).execute()
-
-                                # Insert sales record
                                 supabase.table('sales_records').insert({"order_description": line['product'], "quantity": line['qty'], "unit_price": line['price'], "gross_revenue": gross, "cogs": total_cogs, "net_profit": net, "account": client_name, "order_ref_number": order_ref, "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": client_channel, "status": status}).execute()
-# --- 1.1 CLIENTS DATABASE ---
+                            for pu in pkg_updates:
+                                supabase.table('packaging').update({'remaining_quantity': pu['new_stock']}).eq('id', pu['id']).execute()
+                            if client_select == "-- Type manually --" and client_name:
+                                if clients_df.empty or client_name not in clients_df['client_name'].values:
+                                    supabase.table('clients').insert({"client_name": client_name, "channel": client_channel}).execute()
+                            st.session_state.order_lines = [{"product": fp_opts[0], "qty": 1, "price": None}]
+                            st.success(f"✅ Order {order_ref} logged! All stock deducted.")
+                            time.sleep(1.5)
+                            st.rerun()
+
+    # --- 1.1 CLIENTS DATABASE ---
     elif menu == "Clients":
         st.title("Client Database")
         st.markdown("<p style='color: #64748B;'>Manage your client and account records. Select a client to view their order history.</p>", unsafe_allow_html=True)
-
         if not clients_df.empty:
             display_clients = clients_df.copy()
             display_clients.insert(0, '🔍', False)
-
             with st.container(border=True):
                 edited_clients = st.data_editor(
                     display_clients[['🔍', 'id', 'client_name', 'business_name', 'phone', 'email', 'channel']],
-                    use_container_width=True, hide_index=True,
-                    disabled=['id'],
+                    use_container_width=True, hide_index=True, disabled=['id'],
                     column_config={"id": None, "channel": st.column_config.SelectboxColumn("Channel", options=["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"], required=True)}
                 )
                 if st.button("💾 Synchronize Client Records", type="primary"):
                     for idx, row in edited_clients.iterrows():
                         orig = clients_df.loc[idx]
                         if any(row[c] != orig[c] for c in ['client_name', 'business_name', 'phone', 'email', 'channel']):
-                            supabase.table('clients').update({
-                                "client_name": row['client_name'], "business_name": row['business_name'],
-                                "phone": row['phone'], "email": row['email'], "channel": row['channel']
-                            }).eq('id', int(orig['id'])).execute()
+                            supabase.table('clients').update({"client_name": row['client_name'], "business_name": row['business_name'], "phone": row['phone'], "email": row['email'], "channel": row['channel']}).eq('id', int(orig['id'])).execute()
                     st.success("Client records synchronized!")
                     st.rerun()
-
             selected_clients = edited_clients[edited_clients['🔍'] == True]
             if not selected_clients.empty:
                 client_row = clients_df.loc[selected_clients.index[0]]
@@ -655,7 +580,6 @@ if check_password():
                     c3.write(f"**Address:** {client_row['address'] or 'N/A'}")
                     if client_row.get('notes'):
                         st.write(f"**Notes:** {client_row['notes']}")
-
                     st.write("---")
                     st.markdown("#### 📋 Order History")
                     if not sales_records_df.empty:
@@ -672,7 +596,6 @@ if check_password():
                             st.info("No orders found for this client.")
                     else:
                         st.info("No sales records in the system yet.")
-
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="del_client")
                         if st.button("Erase Client Record") and del_pass == "lab2026":
@@ -680,7 +603,6 @@ if check_password():
                             st.rerun()
         else:
             st.info("No clients registered yet.")
-
         st.write("---")
         with st.expander("➕ Register New Client"):
             with st.form("add_client", clear_on_submit=True):
@@ -695,147 +617,98 @@ if check_password():
                 new_channel = ac5.selectbox("Channel", ["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"])
                 new_notes = ac6.text_input("Notes")
                 if st.form_submit_button("Register Client", type="primary") and new_name:
-                    supabase.table('clients').insert({
-                        "client_name": new_name, "business_name": new_biz, "phone": new_phone,
-                        "email": new_email, "address": new_addr, "channel": new_channel, "notes": new_notes
-                    }).execute()
+                    supabase.table('clients').insert({"client_name": new_name, "business_name": new_biz, "phone": new_phone, "email": new_email, "address": new_addr, "channel": new_channel, "notes": new_notes}).execute()
                     st.success(f"Client '{new_name}' registered!")
                     time.sleep(1); st.rerun()
+
     # --- 1.5 CONSIGNMENT TRACKER ---
     elif menu == "Consignment Tracker":
         st.title("Consignment Agreements")
         st.markdown("<p style='color: #64748B;'>Manage goods sitting on partner shelves. Consigned goods are deducted from your lab stock but do not count as Revenue until explicitly marked as sold here.</p>", unsafe_allow_html=True)
-        
         if not consignment_df.empty:
             active_cons = consignment_df[consignment_df['status'] == 'Active'].copy()
             total_active_units = active_cons['qty_consigned'].sum() - active_cons['qty_sold'].sum()
             total_potential_rev = ((active_cons['qty_consigned'] - active_cons['qty_sold']) * active_cons['wholesale_price']).sum()
-            
             col1, col2 = st.columns(2)
             col1.metric("Unsold Units on Partner Shelves", f"{total_active_units:,}")
             col2.metric("Total Potential Payout Revenue", f"${total_potential_rev:,.2f}")
-            
             st.write("---")
             st.markdown("#### Active Consignment Ledgers")
-            
             display_cons = consignment_df.copy().sort_values('created_at', ascending=False)
             display_cons['Date'] = pd.to_datetime(display_cons['created_at']).dt.strftime('%Y-%m-%d')
             display_cons['Remaining'] = display_cons['qty_consigned'] - display_cons['qty_sold']
             display_cons.insert(0, '🔍', False)
-            
             with st.container(border=True):
-                edited_cons = st.data_editor(
-                    display_cons[['🔍', 'id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']], 
-                    use_container_width=True, hide_index=True, 
-                    disabled=['id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status'],
-                    column_config={
-                        "id": None
-                    }
-                )
-
+                edited_cons = st.data_editor(display_cons[['🔍', 'id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']], use_container_width=True, hide_index=True, disabled=['id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status'], column_config={"id": None})
             selected_cons = edited_cons[edited_cons['🔍'] == True]
             if not selected_cons.empty:
                 sel_id = selected_cons.iloc[0]['id']
                 cons_item = consignment_df[consignment_df['id'] == sel_id].iloc[0]
                 ref_num = cons_item['order_ref_number']
-                
                 if pd.notna(ref_num) and str(ref_num).strip() != "":
                     batch_items = consignment_df[consignment_df['order_ref_number'] == ref_num]
                 else:
                     batch_items = pd.DataFrame([cons_item])
-                
                 st.write("##")
                 with st.container(border=True):
                     st.markdown(f"#### 🤝 Inspecting Consignment: {ref_num if pd.notna(ref_num) else 'Unreferenced'}")
                     st.write(f"**Partner:** {cons_item['partner_name']}")
-                    
                     pdf_bytes = generate_consignment_pdf(str(ref_num), batch_items, str(cons_item['partner_name']), pd.to_datetime(cons_item['created_at']).strftime('%Y-%m-%d'))
                     st.download_button(label="📄 Download Official Consignment Agreement PDF", data=pdf_bytes, file_name=f"Consignment_{ref_num}.pdf", mime="application/pdf", use_container_width=True, type="secondary")
-                    
                     st.write("---")
                     st.markdown(f"**Log Sales for: {cons_item['product_name']}**")
                     remaining_to_sell = cons_item['qty_consigned'] - cons_item['qty_sold']
-                    
                     if remaining_to_sell > 0:
                         with st.form("log_cons_sale"):
                             c1, c2 = st.columns(2)
                             units_sold = c1.number_input("Units Sold by Partner", min_value=1, max_value=int(remaining_to_sell), step=1)
                             payment_status = c2.selectbox("Has the partner paid you for these yet?", ["Pending", "Paid"])
-                            
                             if st.form_submit_button("Log as Revenue & Update Consignment", type="primary"):
                                 new_qty_sold = cons_item['qty_sold'] + units_sold
                                 new_status = "Completed" if new_qty_sold >= cons_item['qty_consigned'] else "Active"
-                                
-                                supabase.table('consignment_records').update({
-                                    'qty_sold': new_qty_sold,
-                                    'status': new_status
-                                }).eq('id', int(sel_id)).execute()
-                                
+                                supabase.table('consignment_records').update({'qty_sold': new_qty_sold, 'status': new_status}).eq('id', int(sel_id)).execute()
                                 gross_rev = units_sold * cons_item['wholesale_price']
                                 cogs = units_sold * cons_item['unit_cogs']
                                 net_profit = gross_rev - cogs
                                 gm = (net_profit / gross_rev) if gross_rev > 0 else 0.0
-                                
-                                supabase.table('sales_records').insert({
-                                    "order_description": cons_item['product_name'], "quantity": units_sold, "unit_price": cons_item['wholesale_price'],
-                                    "gross_revenue": gross_rev, "cogs": cogs, "net_profit": net_profit,
-                                    "account": cons_item['partner_name'], "order_ref_number": ref_num,
-                                    "sale_date": datetime.today().strftime('%Y-%m-%d'), "gm": gm, "channel": "Consignment Payout", "status": payment_status
-                                }).execute()
-                                
+                                supabase.table('sales_records').insert({"order_description": cons_item['product_name'], "quantity": units_sold, "unit_price": cons_item['wholesale_price'], "gross_revenue": gross_rev, "cogs": cogs, "net_profit": net_profit, "account": cons_item['partner_name'], "order_ref_number": ref_num, "sale_date": datetime.today().strftime('%Y-%m-%d'), "gm": gm, "channel": "Consignment Payout", "status": payment_status}).execute()
                                 st.success(f"Successfully converted {units_sold} consigned units into Sales Revenue!")
                                 time.sleep(1.5); st.rerun()
                     else:
                         st.success("✅ All units from this consignment line have been sold and logged.")
-                        
         else:
             st.info("No consignment records found.")
-
-       # Consign New Goods
         st.write("---")
         with st.expander("➕ Consign New Goods (Deducts from Lab Stock)"):
             if not finished_goods.empty:
-                
-                # --- Auto-Generator for CONS-XXXXXX ---
-                next_cons_id = 250  # Changed baseline from 1 to 250
+                next_cons_id = 250
                 if not consignment_df.empty:
                     cons_codes = consignment_df['order_ref_number'].astype(str).str.extract(r'CONS-(\d+)')[0].dropna().astype(int)
                     if not cons_codes.empty:
-                        # Take the highest number, but ensure it never drops below 250
                         next_cons_id = max(250, cons_codes.max() + 1)
                 default_ref = f"CONS-{next_cons_id:06d}"
-
                 with st.form("add_consignment"):
                     st.info("💡 Goods entered here will leave your inventory vault but will NOT count towards Gross Revenue until the partner sells them.")
                     c1, c2, c3 = st.columns(3)
-                    
                     partner = c1.text_input("Partner / Retailer Name")
-                    ref = c2.text_input("Consignment Ref #", value=default_ref)  # Automatically pre-fills!
+                    ref = c2.text_input("Consignment Ref #", value=default_ref)
                     prod = c3.selectbox("Finished Product", finished_goods['product_name'].tolist())
-                    
                     fg_match = finished_goods[finished_goods['product_name'] == prod].iloc[0]
                     def_retail = float(fg_match['retail_price'])
                     def_cogs = float(fg_match['unit_cogs'])
                     curr_stock = int(fg_match['stock_quantity'])
-                    
                     c4, c5, c6 = st.columns(3)
                     qty = c4.number_input("Qty to Consign", min_value=1, step=1)
                     retail_p = c5.number_input("Suggested Retail Price ($)", value=def_retail, min_value=0.0)
                     wholesale_p = c6.number_input("Payout to Maker per Unit ($)", value=def_retail * 0.5, min_value=0.0)
-                    
                     if st.form_submit_button("Ship Consignment & Deduct Stock", type="primary"):
                         if not partner or not ref:
                             st.error("⚠️ Please provide both the Partner Name and Consignment Ref #.")
                         elif curr_stock < qty:
                             st.error(f"⚠️ You only have {curr_stock} of {prod}. Aborted.")
                         else:
-                            # 1. Deduct Stock
                             supabase.table('finished_products').update({'stock_quantity': curr_stock - qty}).eq('id', int(fg_match['id'])).execute()
-                            # 2. Add to Consignment
-                            supabase.table('consignment_records').insert({
-                                "partner_name": partner, "order_ref_number": ref, "product_name": prod,
-                                "qty_consigned": qty, "unit_cogs": def_cogs, "retail_price": retail_p, "wholesale_price": wholesale_p
-                            }).execute()
+                            supabase.table('consignment_records').insert({"partner_name": partner, "order_ref_number": ref, "product_name": prod, "qty_consigned": qty, "unit_cogs": def_cogs, "retail_price": retail_p, "wholesale_price": wholesale_p}).execute()
                             st.success("Consignment logged securely!")
                             time.sleep(1.5); st.rerun()
 
@@ -844,26 +717,21 @@ if check_password():
         st.title("Financial Overview")
         st.markdown("<p style='color: #64748B;'>Live tracking of physical assets, inventory valuation, and retail projections.</p>", unsafe_allow_html=True)
         st.write("##")
-        
         rm_total = (inventory['price_per_kg'] * inventory['quantity_kg']).sum() if not inventory.empty else 0.0
         pm_total = (packaging['cost_per_unit'] * packaging['remaining_quantity']).sum() if not packaging.empty else 0.0
         fp_cogs_total = (finished_goods['unit_cogs'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
         fp_retail_total = (finished_goods['retail_price'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
-        
         cons_cogs_total = 0.0
         if not consignment_df.empty:
             active_cons = consignment_df[consignment_df['status'] == 'Active'].copy()
             active_cons['unsold_qty'] = active_cons['qty_consigned'] - active_cons['qty_sold']
             cons_cogs_total = (active_cons['unsold_qty'] * active_cons['unit_cogs']).sum()
-        
         vault_assets = rm_total + pm_total + fp_cogs_total + cons_cogs_total
-        
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.metric("Raw Materials", f"${rm_total:,.2f}")
         with c2: st.metric("Packaging", f"${pm_total:,.2f}")
         with c3: st.metric("Finished Goods (In Lab)", f"${fp_cogs_total:,.2f}")
         with c4: st.metric("Finished Goods (Consigned)", f"${cons_cogs_total:,.2f}")
-        
         st.write("---")
         st.markdown("#### Projected Revenue")
         st.metric("Potential Retail Value on Shelf", f"${fp_retail_total:,.2f}", f"Est. Gross Profit: ${(fp_retail_total - fp_cogs_total):,.2f}")
@@ -872,23 +740,18 @@ if check_password():
     elif menu == "Balance Sheet":
         st.title("Balance Sheet Generator")
         st.markdown("<p style='color: #64748B;'>Generate a professional financial statement summarizing assets, liabilities, and owner's equity.</p>", unsafe_allow_html=True)
-        
         rm_total = (inventory['price_per_kg'] * inventory['quantity_kg']).sum() if not inventory.empty else 0.0
         pm_total = (packaging['cost_per_unit'] * packaging['remaining_quantity']).sum() if not packaging.empty else 0.0
         fp_cogs_total = (finished_goods['unit_cogs'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
-        
         cons_cogs_total = 0.0
         if not consignment_df.empty:
             active_cons = consignment_df[consignment_df['status'] == 'Active'].copy()
             active_cons['unsold_qty'] = active_cons['qty_consigned'] - active_cons['qty_sold']
             cons_cogs_total = (active_cons['unsold_qty'] * active_cons['unit_cogs']).sum()
-        
         total_inv_fg = fp_cogs_total + cons_cogs_total
-        
         ar_total = 0.0
         if not sales_records_df.empty:
             ar_total = sales_records_df[sales_records_df['status'] == 'Pending']['gross_revenue'].sum()
-            
         with st.form("balance_sheet_form"):
             col1, col2 = st.columns(2)
             with col1:
@@ -905,17 +768,14 @@ if check_password():
                 accounts_payable = st.number_input("Accounts Payable (Unpaid Bills) ($)", min_value=0.0, value=0.0, step=100.0)
                 debt = st.number_input("Short/Long Term Debt ($)", min_value=0.0, value=0.0, step=100.0)
             submit_bs = st.form_submit_button("Calculate & Generate Balance Sheet", type="primary", use_container_width=True)
-            
         if submit_bs:
             total_assets = cash + ar_total + rm_total + pm_total + total_inv_fg + fixed_assets
             total_liabilities = accounts_payable + debt
             owner_equity = total_assets - total_liabilities
-            
             r1, r2, r3 = st.columns(3)
             r1.metric("Total Assets", f"${total_assets:,.2f}")
             r2.metric("Total Liabilities", f"${total_liabilities:,.2f}")
             r3.metric("Owner's Equity", f"${owner_equity:,.2f}")
-            
             if owner_equity == (total_assets - total_liabilities):
                 date_str = datetime.today().strftime('%B %d, %Y')
                 pdf_bytes = generate_balance_sheet_pdf(date_str, cash, ar_total, rm_total, pm_total, total_inv_fg, fixed_assets, accounts_payable, debt, total_assets, total_liabilities, owner_equity)
@@ -928,7 +788,6 @@ if check_password():
         if not inventory.empty:
             display_inv = inventory.copy(); display_inv['Cost/g ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format); display_inv.insert(0, '🔍', False) 
             with st.container(border=True):
-                # Disabled quantity_kg so it is strictly driven by the sum of lots
                 edited_inv = st.data_editor(display_inv[['🔍', 'rm_code', 'trade_name', 'inci_name', 'price_per_kg', 'Cost/g ($)', 'quantity_kg']], use_container_width=True, hide_index=True, disabled=['rm_code', 'Cost/g ($)', 'quantity_kg'])
                 if st.button("💾 Synchronize Vault"):
                     for idx, row in edited_inv.iterrows():
@@ -945,8 +804,6 @@ if check_password():
                     c1.write(f"**Code:** {mat['rm_code']}<br>**INCI:** {mat['inci_name']}", unsafe_allow_html=True)
                     c2.write(f"**Total Stock:** {mat['quantity_kg']} Kg<br>**Price:** ${mat['price_per_kg']}/Kg", unsafe_allow_html=True)
                     c3.write(f"**Shelf Value:** ${(mat['price_per_kg'] * mat['quantity_kg']):.2f}")
-                    
-                    # --- NEW LOT TRACKING SECTION ---
                     st.write("---")
                     st.markdown("#### 📦 Lot Tracking Ledgers")
                     lots = mat.get('lots', [])
@@ -969,8 +826,6 @@ if check_password():
                                 supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": float(new_total_kg)}).eq('id', int(mat['id'])).execute()
                                 st.success("Lots updated successfully! Total Stock recalculated.")
                                 time.sleep(1.5); st.rerun()
-                    # --- END LOT TRACKING SECTION ---
-
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
                         if st.button("Erase Record") and del_pass == "lab2026":
@@ -998,7 +853,6 @@ if check_password():
         if not packaging.empty:
             display_pk = packaging.copy(); display_pk.insert(0, '🔍', False)
             with st.container(border=True):
-                # Disabled remaining_quantity so it is strictly driven by the sum of lots
                 edited_pk = st.data_editor(display_pk[['🔍', 'pm_code', 'material_name', 'supplier', 'cost_per_unit', 'remaining_quantity']], use_container_width=True, hide_index=True, disabled=['pm_code', 'remaining_quantity'])
                 if st.button("💾 Synchronize Vault"):
                     for idx, row in edited_pk.iterrows():
@@ -1012,8 +866,6 @@ if check_password():
                 with st.container(border=True):
                     st.markdown(f"#### {p_mat['material_name']}")
                     st.write(f"**Code:** {p_mat['pm_code']} | **Supplier:** {p_mat['supplier']} | **Total Stock:** {p_mat['remaining_quantity']} Units")
-                    
-                    # --- NEW LOT TRACKING SECTION ---
                     st.write("---")
                     st.markdown("#### 📦 Lot Tracking Ledgers")
                     lots = p_mat.get('lots', [])
@@ -1035,8 +887,6 @@ if check_password():
                                 supabase.table('packaging').update({"lots": new_lots_json, "remaining_quantity": int(new_total_qty)}).eq('id', int(p_mat['id'])).execute()
                                 st.success("Lots updated successfully! Total Stock recalculated.")
                                 time.sleep(1.5); st.rerun()
-                    # --- END LOT TRACKING SECTION ---
-
                     with st.expander("System Actions"):
                         if st.button("Erase Record") and st.text_input("Authorization", type="password", key="dpp") == "lab2026":
                             supabase.table('packaging').delete().eq('id', int(p_mat['id'])).execute(); st.rerun()
@@ -1058,32 +908,19 @@ if check_password():
     elif menu == "Finished Products":
         st.title("Finished Products")
         st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
-        
         if not finished_goods.empty:
             display_fp = finished_goods.copy()
             display_fp.insert(0, '🔍', False)
-            
             st.write("💡 *Edit stock quantities directly in the table below.*")
             with st.container(border=True):
-                edited_fp = st.data_editor(
-                    display_fp[['🔍', 'fp_code', 'product_name', 'stock_quantity', 'unit_cogs', 'retail_price']],
-                    use_container_width=True, hide_index=True, disabled=['fp_code', 'unit_cogs', 'retail_price'],
-                    column_config={
-                        "unit_cogs": st.column_config.NumberColumn("Unit COGS", format="$%.2f"),
-                        "retail_price": st.column_config.NumberColumn("Retail Price", format="$%.2f")
-                    }
-                )
-                
+                edited_fp = st.data_editor(display_fp[['🔍', 'fp_code', 'product_name', 'stock_quantity', 'unit_cogs', 'retail_price']], use_container_width=True, hide_index=True, disabled=['fp_code', 'unit_cogs', 'retail_price'], column_config={"unit_cogs": st.column_config.NumberColumn("Unit COGS", format="$%.2f"), "retail_price": st.column_config.NumberColumn("Retail Price", format="$%.2f")})
                 if st.button("💾 Synchronize Vault", type="primary"):
                     for idx, row in edited_fp.iterrows():
                         orig = finished_goods.loc[idx]
                         if row['stock_quantity'] != orig['stock_quantity']:
-                            supabase.table('finished_products').update({
-                                "stock_quantity": row['stock_quantity']
-                            }).eq('id', int(orig['id'])).execute()
+                            supabase.table('finished_products').update({"stock_quantity": row['stock_quantity']}).eq('id', int(orig['id'])).execute()
                     st.success("Finished goods synced!")
                     st.rerun()
-
             selected_fp = edited_fp[edited_fp['🔍'] == True]
             if not selected_fp.empty:
                 fp_item = finished_goods.loc[selected_fp.index[0]]
@@ -1093,16 +930,13 @@ if check_password():
                     c1, c2, c3 = st.columns(3)
                     c1.write(f"**Code:** {fp_item['fp_code']}")
                     c2.write(f"**In Stock:** {fp_item['stock_quantity']} Units")
-                    
                     margin = ((fp_item['retail_price'] - fp_item['unit_cogs']) / fp_item['retail_price'] * 100) if fp_item['retail_price'] > 0 else 0
                     c3.write(f"**Profit Margin:** {margin:.1f}%")
-                    
                     with st.expander("System Actions"):
                         if st.button("Erase Record") and st.text_input("Authorization Passcode", type="password", key="dfpp") == "lab2026":
                             supabase.table('finished_products').delete().eq('id', int(fp_item['id'])).execute(); st.rerun()
         else:
             st.info("No finished products currently in stock.")
-
         st.write("---")
         with st.expander("➕ Log New Finished Product Batch"):
             if not cogs_records_df.empty:
@@ -1111,14 +945,12 @@ if check_password():
                     cogs_opts = [f"[{r['id']}] {r['product_name']}" for _, r in cogs_records_df.iterrows()]
                     sel_cogs = c1.selectbox("Select Target Product (From COGS Vault)", cogs_opts)
                     fp_q = c2.number_input("Bottles Produced (Qty)", min_value=1, value=10, step=1)
-                    
                     if st.form_submit_button("Add to Stock"):
                         cogs_id = int(sel_cogs.split("]")[0].replace("[", ""))
                         matched_cogs = cogs_records_df[cogs_records_df['id'] == cogs_id].iloc[0]
                         target_name = matched_cogs['product_name']
                         target_cogs = float(matched_cogs['total_cogs'])
                         target_retail = float(matched_cogs['target_retail'])
-                        
                         if not finished_goods.empty and target_name in finished_goods['product_name'].values:
                             existing_product = finished_goods[finished_goods['product_name'] == target_name]
                             existing_id = int(existing_product.iloc[0]['id'])
@@ -1135,19 +967,15 @@ if check_password():
     elif menu == "Formula Library":
         st.title("📚 Formula Library")
         st.markdown("<p style='color: #64748B;'>Inspect read-only recipes and execute live manufacturing batches.</p>", unsafe_allow_html=True)
-        
         if not formulas_df.empty:
             formulas_df['base_code'] = formulas_df['fr_code'].apply(lambda x: str(x).split('-')[0])
             summary_df = formulas_df.sort_values(by='fr_code').drop_duplicates(subset=['base_code'], keep='first').copy()
             summary_df['Family Name'] = summary_df['formula_name'].apply(lambda x: re.sub(r' V\d+$', '', str(x)))
-            
             st.write("💡 *Select a Formula Family below to inspect its editions and execute production.*")
             f_select = st.dataframe(summary_df[['base_code', 'Family Name']], use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
-
             if f_select.selection.rows:
                 sel_base = summary_df.iloc[f_select.selection.rows[0]]['base_code']
                 family_editions = formulas_df[formulas_df['base_code'] == sel_base].sort_values(by='fr_code', ascending=False)
-                
                 st.write("##")
                 with st.container(border=True):
                     if len(family_editions) > 1:
@@ -1158,9 +986,7 @@ if check_password():
                     else:
                         sel_f = family_editions.iloc[0]
                         st.markdown(f"#### ⚗️ {sel_f['fr_code']} - {sel_f['formula_name']}")
-                        
                     recipe_data = sel_f['recipe']
-                    
                     if isinstance(recipe_data, dict):
                         recipe_items = [{"Phase": "A", "Ingredient": k, "%": v} for k, v in recipe_data.items()]
                     elif isinstance(recipe_data, list):
@@ -1170,11 +996,9 @@ if check_password():
                             recipe_items.append(item)
                     else:
                         recipe_items = []
-                    
                     st.write("---")
                     b_size = st.number_input("Target Batch Size (grams)", min_value=1.0, value=1000.0, step=100.0)
                     st.write("---")
-                    
                     calc_data = []; stock_ok = True; total_cost = 0.0
                     for row in recipe_items:
                         ing = row.get('Ingredient'); p = row.get('%', 0); phase = row.get('Phase', 'A')
@@ -1189,18 +1013,15 @@ if check_password():
                         else:
                             stock_ok = False
                             calc_data.append({"Phase": phase, "RM Code": "N/A", "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "⚠️ Not in Vault", "Est. Cost": "$0.00", "req_kg": 0, "stock_kg": 0})
-                    
                     calc_df = pd.DataFrame(calc_data)
                     if not calc_df.empty:
                         st.dataframe(calc_df.sort_values(by="Phase")[['Phase', 'RM Code', 'Material', 'Formula %', 'Needed (g)', 'Stock Status', 'Est. Cost']], use_container_width=True, hide_index=True)
-                    
                     st.write("---")
                     st.markdown("#### 📋 Manufacturing Procedure")
                     proc_text = sel_f.get('procedure', 'No written procedure documented for this formula.')
                     if pd.isna(proc_text) or str(proc_text).strip() == "": proc_text = "No written procedure documented for this formula."
                     st.info(proc_text)
                     st.write("---")
-                    
                     col_cost, col_btn = st.columns([1, 1])
                     col_cost.metric("Projected Batch Cost", f"${total_cost:.2f}")
                     with col_btn:
@@ -1215,7 +1036,6 @@ if check_password():
                                 supabase.table('production_records').insert({"fr_code": sel_f['fr_code'], "formula_name": sel_f['formula_name'], "batch_number": b_no, "lot_number": l_no, "batch_size_g": b_size, "total_cost": total_cost}).execute()
                                 st.balloons(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
-                    
                     st.divider()
                     c_act1, c_act2, c_act3, c_act4 = st.columns(4)
                     with c_act1:
@@ -1267,7 +1087,6 @@ if check_password():
     elif menu == "Formula Builder":
         st.title("⚙️ Formula Builder")
         st.markdown("<p style='color: #64748B;'>Draft, calculate, and version control your recipes here.</p>", unsafe_allow_html=True)
-        
         c_build, c_metrics = st.columns([3, 2])
         with c_build:
             if "edit_formula_id" in st.session_state:
@@ -1287,31 +1106,12 @@ if check_password():
                         if key in st.session_state: del st.session_state[key]
                     st.rerun()
                 st.write("")
-            
             f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil")
-            
             if "builder" not in st.session_state: 
                 st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
-            
             ing_options = inventory['trade_name'].tolist() if not inventory.empty else ["No materials registered"]
-            
-            edit_df = st.data_editor(
-                st.session_state.builder, 
-                num_rows="dynamic", 
-                use_container_width=True, 
-                column_config={
-                    "Phase": st.column_config.SelectboxColumn("Phase", options=["A", "B", "C", "D", "E", "F"], required=True),
-                    "Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options, required=True)
-                }
-            )
-            
-            procedure_text = st.text_area(
-                "Manufacturing Procedure", 
-                value=st.session_state.get("draft_procedure", ""),
-                placeholder="1. Heat Phase A to 75°C...",
-                height=150
-            )
-        
+            edit_df = st.data_editor(st.session_state.builder, num_rows="dynamic", use_container_width=True, column_config={"Phase": st.column_config.SelectboxColumn("Phase", options=["A", "B", "C", "D", "E", "F"], required=True), "Ingredient": st.column_config.SelectboxColumn("Ingredient", options=ing_options, required=True)})
+            procedure_text = st.text_area("Manufacturing Procedure", value=st.session_state.get("draft_procedure", ""), placeholder="1. Heat Phase A to 75°C...", height=150)
         with c_metrics:
             st.write("<div style='margin-top: 2.2rem;'></div>", unsafe_allow_html=True)
             total_cost_kg = 0.0; live_data = []
@@ -1323,24 +1123,19 @@ if check_password():
                     rm_c = str(m_row['rm_code'])
                     cost_contrib = (perc / 100.0) * price; total_cost_kg += cost_contrib
                     live_data.append({"Phase": phase, "RM Code": rm_c, "Material": ing, "Cost": f"${cost_contrib:,.2f}"})
-            
             if live_data: 
                 st.dataframe(pd.DataFrame(live_data).sort_values('Phase')[['Phase', 'RM Code', 'Material', 'Cost']], use_container_width=True, hide_index=True)
             else: 
                 st.info("Select ingredients to see live costs.")
-                
             st.metric("Total Formula Cost / Kg", f"${total_cost_kg:,.2f}")
             total_perc = edit_df["%"].sum() if "%" in edit_df.columns else 0.0
-            
             if round(total_perc, 2) == 100.0:
                 st.success("✅ Formula is balanced (100%)")
                 btn_label = "💾 Update Existing Edition" if "edit_formula_id" in st.session_state else "Commit Formula to Vault"
                 if st.button(btn_label, type="primary", use_container_width=True) and f_name:
                     recipe_json = edit_df.to_dict(orient='records')
                     if "edit_formula_id" in st.session_state:
-                        supabase.table("formulas").update({
-                            "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text
-                        }).eq('id', st.session_state.edit_formula_id).execute()
+                        supabase.table("formulas").update({"formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).eq('id', st.session_state.edit_formula_id).execute()
                         st.success("Updated Successfully!")
                     else:
                         if "base_fr_code" in st.session_state:
@@ -1354,10 +1149,8 @@ if check_password():
                                 root_codes = formulas_df['fr_code'].str.extract(r'FR(\d{5})')[0].dropna().astype(int)
                                 next_id = root_codes.max() + 1 if not root_codes.empty else 1
                                 fr_c = f"FR{next_id:05d}"
-                        
                         supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).execute()
                         st.success("Saved to Library!")
-                        
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                     for key in ["draft_name", "base_fr_code", "draft_procedure", "edit_formula_id", "edit_fr_code"]:
                         if key in st.session_state: del st.session_state[key]
@@ -1367,26 +1160,21 @@ if check_password():
     elif menu == "COGS Calculator":
         st.title("Cost of Goods Sold (COGS)")
         st.markdown("<p style='color: #64748B;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
-        
         with st.container(border=True):
             st.markdown("#### Step 1: Physical Product Specs")
             c1, c2, c3 = st.columns(3)
-            
             if not formulas_df.empty:
                 f_opts = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in formulas_df.iterrows()]
                 sel_form = c1.selectbox("Base Formula", f_opts)
             else:
                 sel_form = None; c1.warning("No formulas in vault.")
-                
             fill_wt = c2.number_input("Fill Weight per Unit (grams)", min_value=1.0, value=30.0, step=5.0)
-            
             if not packaging.empty:
                 p_opts = [f"[{r['pm_code']}] {r['material_name']}" for _, r in packaging.iterrows()]
                 p_opts.insert(0, "None / Custom")
                 sel_pack = c3.selectbox("Primary Packaging", p_opts)
             else:
                 sel_pack = "None / Custom"; c3.warning("No packaging in vault.")
-
         with st.container(border=True):
             st.markdown("#### Step 2: Component & Variable Costs (per unit)")
             cm1, cm2, cm3, cm4 = st.columns(4)
@@ -1394,9 +1182,7 @@ if check_password():
             cost_lbl = cm2.number_input("Label Cost ($)", min_value=0.0, value=0.05, step=0.05)
             cost_sec = cm3.number_input("Secondary Box ($)", min_value=0.0, value=0.00, step=0.05)
             cost_ter = cm4.number_input("Tertiary/Carton ($)", min_value=0.0, value=0.00, step=0.05)
-
         st.write("##")
-
         bulk_cost = 0.0
         n_only = ""
         if sel_form:
@@ -1408,7 +1194,6 @@ if check_password():
                 rec_items = rec
             else:
                 rec_items = []
-                
             for row in rec_items:
                 ing = row.get('Ingredient'); p = row.get('%', 0)
                 req_g = (p/100) * fill_wt
@@ -1416,14 +1201,11 @@ if check_password():
                 if not m.empty:
                     p_kg = float(m['price_per_kg'].values[0])
                     bulk_cost += (req_g/1000) * p_kg
-
         pack_cost = 0.0
         if sel_pack != "None / Custom":
             p_only = sel_pack.split("] ")[1]
             pack_cost = float(packaging[packaging['material_name'] == p_only].iloc[0]['cost_per_unit'])
-
         total_cogs = bulk_cost + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
-
         st.markdown("#### Cost Breakdown & Profit Margin")
         r1, r2 = st.columns([2, 1])
         with r1:
@@ -1435,7 +1217,6 @@ if check_password():
                 {"Component": "Tertiary Packaging", "Cost per Unit": f"${cost_ter:.4f}"},
                 {"Component": "Labor / Mfg Overhead", "Cost per Unit": f"${cost_mfg:.4f}"}
             ]), use_container_width=True, hide_index=True)
-            
         with r2:
             with st.container(border=True):
                 st.metric("Total COGS per Unit", f"${total_cogs:.2f}")
@@ -1446,7 +1227,6 @@ if check_password():
                     margin_pct = (gross_profit / target_retail) * 100
                     st.write("---")
                     st.metric("Gross Profit", f"${gross_profit:.2f}", f"{margin_pct:.1f}% Margin")
-
         st.write("##")
         with st.container(border=True):
             st.markdown("#### 💾 Save COGS Configuration")
@@ -1455,36 +1235,30 @@ if check_password():
             sc2.write("<br>", unsafe_allow_html=True)
             if sc2.button("Commit Profile to Vault", type="primary", use_container_width=True):
                 if cogs_name:
-                    supabase.table('cogs_records').insert({
-                        "product_name": cogs_name, "formula_name": n_only if sel_form else "None",
-                        "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom",
-                        "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl,
-                        "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct
-                    }).execute()
+                    supabase.table('cogs_records').insert({"product_name": cogs_name, "formula_name": n_only if sel_form else "None", "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom", "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl, "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct, "version": 1, "is_active": True}).execute()
                     st.success(f"Saved profile: {cogs_name}")
                     st.rerun()
                 else:
                     st.error("Please enter a Product Name before saving.")
-
         st.write("---")
         st.markdown("#### 📂 Saved COGS Profiles")
         if not cogs_records_df.empty:
-            display_cogs = cogs_records_df.copy()
+            if 'is_active' in cogs_records_df.columns:
+                active_cogs = cogs_records_df[cogs_records_df['is_active'] != False].copy()
+            else:
+                active_cogs = cogs_records_df.copy()
+            display_cogs = active_cogs.copy()
             display_cogs['Date'] = pd.to_datetime(display_cogs['created_at']).dt.strftime('%Y-%m-%d')
             display_cogs.insert(0, '🔍', False)
             with st.container(border=True):
                 edited_cogs = st.data_editor(
                     display_cogs[['🔍', 'Date', 'product_name', 'formula_name', 'fill_weight_g', 'total_cogs', 'target_retail', 'gross_margin_pct']],
                     use_container_width=True, hide_index=True, disabled=['Date', 'formula_name', 'fill_weight_g', 'total_cogs', 'gross_margin_pct'],
-                    column_config={
-                        "total_cogs": st.column_config.NumberColumn("Total COGS", format="$%.2f"),
-                        "target_retail": st.column_config.NumberColumn("Target Retail", format="$%.2f"),
-                        "gross_margin_pct": st.column_config.NumberColumn("Margin %", format="%.1f%%")
-                    }
+                    column_config={"total_cogs": st.column_config.NumberColumn("Total COGS", format="$%.2f"), "target_retail": st.column_config.NumberColumn("Target Retail", format="$%.2f"), "gross_margin_pct": st.column_config.NumberColumn("Margin %", format="%.1f%%")}
                 )
                 if st.button("💾 Synchronize COGS Vault", type="primary"):
                     for index, row in edited_cogs.iterrows():
-                        orig = cogs_records_df.loc[index]
+                        orig = active_cogs.loc[index]
                         if row['product_name'] != orig['product_name'] or row['target_retail'] != orig['target_retail']:
                             new_retail = float(row['target_retail'])
                             new_cogs = float(orig['total_cogs'])
@@ -1494,12 +1268,68 @@ if check_password():
                     st.rerun()
             selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
             if not selected_cogs.empty:
-                cogs_item = cogs_records_df.loc[selected_cogs.index[0]]
+                cogs_item = active_cogs.loc[selected_cogs.index[0]]
                 st.write("##")
                 with st.container(border=True):
                     st.markdown(f"#### {cogs_item['product_name']}")
                     st.write(f"**Base Formula:** {cogs_item['formula_name']} ({cogs_item['fill_weight_g']}g fill)")
                     st.write(f"**Primary Packaging:** {cogs_item['primary_packaging']}")
+                    # --- RECALCULATE COGS WITH CURRENT RM PRICES ---
+                    with st.expander("🔄 Recalculate COGS with Current RM Prices"):
+                        recalc_formula_name = cogs_item['formula_name']
+                        recalc_fill_wt = float(cogs_item['fill_weight_g'])
+                        recalc_bulk = 0.0
+                        if not formulas_df.empty and recalc_formula_name in formulas_df['formula_name'].values:
+                            rec_f = formulas_df[formulas_df['formula_name'] == recalc_formula_name].iloc[0]['recipe']
+                            if isinstance(rec_f, dict):
+                                rec_items_r = [{"Ingredient": k, "%": v} for k, v in rec_f.items()]
+                            elif isinstance(rec_f, list):
+                                rec_items_r = rec_f
+                            else:
+                                rec_items_r = []
+                            for rr in rec_items_r:
+                                r_ing = rr.get('Ingredient'); r_pct = rr.get('%', 0)
+                                r_req = (r_pct / 100) * recalc_fill_wt
+                                r_m = inventory[inventory['trade_name'] == r_ing]
+                                if not r_m.empty:
+                                    recalc_bulk += (r_req / 1000) * float(r_m['price_per_kg'].values[0])
+                        recalc_pack = float(cogs_item.get('packaging_cost', 0) or 0)
+                        recalc_mfg = float(cogs_item.get('mfg_cost', 0) or 0)
+                        recalc_lbl = float(cogs_item.get('label_cost', 0) or 0)
+                        recalc_total = recalc_bulk + recalc_pack + recalc_mfg + recalc_lbl
+                        old_total = float(cogs_item['total_cogs'])
+                        delta = recalc_total - old_total
+                        rc1, rc2, rc3 = st.columns(3)
+                        rc1.metric("Current COGS", f"${old_total:.2f}")
+                        rc2.metric("Recalculated COGS", f"${recalc_total:.2f}", f"{'↑' if delta > 0 else '↓'} ${abs(delta):.2f}" if delta != 0 else "No change")
+                        old_retail = float(cogs_item['target_retail'])
+                        new_margin = ((old_retail - recalc_total) / old_retail * 100) if old_retail > 0 else 0
+                        rc3.metric("New Margin", f"{new_margin:.1f}%")
+                        if delta != 0:
+                            if st.button("✅ Apply Recalculation (Creates New Version)", type="primary", key="recalc_apply"):
+                                supabase.table('cogs_records').update({"is_active": False}).eq('id', int(cogs_item['id'])).execute()
+                                supabase.table('cogs_records').insert({"product_name": cogs_item['product_name'], "formula_name": recalc_formula_name, "fill_weight_g": recalc_fill_wt, "primary_packaging": cogs_item['primary_packaging'], "bulk_cost": recalc_bulk, "packaging_cost": recalc_pack, "mfg_cost": recalc_mfg, "label_cost": recalc_lbl, "total_cogs": recalc_total, "target_retail": old_retail, "gross_margin_pct": new_margin, "version": int(cogs_item.get('version', 1) or 1) + 1, "is_active": True, "parent_id": int(cogs_item['id'])}).execute()
+                                st.success("New COGS version created! Old version archived.")
+                                time.sleep(1); st.rerun()
+                        else:
+                            st.info("COGS is already up to date with current RM prices.")
+                    # --- VIEW OLDER VERSIONS ---
+                    with st.expander("📜 View Older COGS Versions"):
+                        all_versions = cogs_records_df[cogs_records_df['product_name'] == cogs_item['product_name']].copy()
+                        if 'version' in all_versions.columns:
+                            all_versions['version'] = all_versions['version'].fillna(1).astype(int)
+                        else:
+                            all_versions['version'] = 1
+                        if 'is_active' in all_versions.columns:
+                            all_versions['is_active'] = all_versions['is_active'].fillna(True)
+                        else:
+                            all_versions['is_active'] = True
+                        all_versions['Status'] = all_versions['is_active'].apply(lambda x: "✅ Active" if x else "📦 Archived")
+                        all_versions['Date'] = pd.to_datetime(all_versions['created_at']).dt.strftime('%Y-%m-%d')
+                        if len(all_versions) > 1:
+                            st.dataframe(all_versions[['Date', 'version', 'Status', 'total_cogs', 'target_retail', 'gross_margin_pct']].sort_values('version', ascending=False), use_container_width=True, hide_index=True, column_config={"total_cogs": st.column_config.NumberColumn("COGS", format="$%.2f"), "target_retail": st.column_config.NumberColumn("Retail", format="$%.2f"), "gross_margin_pct": st.column_config.NumberColumn("Margin", format="%.1f%%")})
+                        else:
+                            st.info("No older versions. This is the first version.")
                     with st.expander("System Actions"):
                         del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
                         if st.button("Erase COGS Profile"):
@@ -1512,47 +1342,23 @@ if check_password():
     elif menu == "Production Logs":
         st.title("Production Logs")
         st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records & Physical Batch Labels.</p>", unsafe_allow_html=True)
-        
         logs = supabase.table('production_records').select("*").order("created_at", desc=True).execute()
         if logs.data:
             df = pd.DataFrame(logs.data)
             df['Date'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
-            
             disp_logs = df.copy()
             disp_logs.insert(0, '🏷️', False)
-            
             st.write("💡 *Check the box next to any batch to generate its GMP physical labels.*")
             with st.container(border=True):
-                edited_logs = st.data_editor(
-                    disp_logs[['🏷️', 'id', 'Date', 'batch_number', 'lot_number', 'formula_name', 'batch_size_g', 'total_cost']], 
-                    use_container_width=True, hide_index=True, 
-                    disabled=['id', 'Date', 'batch_number', 'lot_number', 'formula_name', 'batch_size_g', 'total_cost'], 
-                    column_config={"id": None}
-                )
-            
+                edited_logs = st.data_editor(disp_logs[['🏷️', 'id', 'Date', 'batch_number', 'lot_number', 'formula_name', 'batch_size_g', 'total_cost']], use_container_width=True, hide_index=True, disabled=['id', 'Date', 'batch_number', 'lot_number', 'formula_name', 'batch_size_g', 'total_cost'], column_config={"id": None})
             sel_logs = edited_logs[edited_logs['🏷️'] == True]
             if not sel_logs.empty:
                 s_log = df[df['id'] == sel_logs.iloc[0]['id']].iloc[0]
-                
                 st.write("##")
                 with st.container(border=True):
                     st.markdown(f"#### 🖨️ Label Generator: {s_log['batch_number']}")
                     st.write(f"**Formula:** {s_log['formula_name']} | **Lot:** {s_log['lot_number']} | **Size:** {s_log['batch_size_g']}g")
-                    
-                    pdf_bytes = generate_batch_labels_pdf(
-                        s_log['formula_name'], 
-                        s_log['batch_number'], 
-                        s_log['lot_number'], 
-                        pd.to_datetime(s_log['created_at']).strftime('%Y-%m-%d')
-                    )
-                    
-                    st.download_button(
-                        label="📄 Download GMP Batch Label Sheet (PDF)", 
-                        data=pdf_bytes, 
-                        file_name=f"Labels_{s_log['batch_number']}.pdf", 
-                        mime="application/pdf", 
-                        use_container_width=True,
-                        type="primary"
-                    )
+                    pdf_bytes = generate_batch_labels_pdf(s_log['formula_name'], s_log['batch_number'], s_log['lot_number'], pd.to_datetime(s_log['created_at']).strftime('%Y-%m-%d'))
+                    st.download_button(label="📄 Download GMP Batch Label Sheet (PDF)", data=pdf_bytes, file_name=f"Labels_{s_log['batch_number']}.pdf", mime="application/pdf", use_container_width=True, type="primary")
         else: 
             st.info("No records found in the vault.")
