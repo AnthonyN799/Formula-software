@@ -37,7 +37,8 @@ def init_connection():
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 supabase = init_connection()
 
-def fetch_vault_data(table_name, sort_column=None):
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_cached(table_name, sort_column=None):
     for attempt in range(3): 
         try:
             resp = supabase.table(table_name).select("*").execute()
@@ -46,8 +47,34 @@ def fetch_vault_data(table_name, sort_column=None):
                 df = df.sort_values(sort_column)
             return df
         except Exception: time.sleep(0.5) 
-    st.error(f"⚠️ Network timeout accessing {table_name}. Please refresh.")
-    st.stop()
+    return pd.DataFrame()
+
+def fetch_vault_data(table_name, sort_column=None):
+    df = _fetch_cached(table_name, sort_column)
+    if df is None:
+        st.error(f"⚠️ Network timeout accessing {table_name}. Please refresh.")
+        st.stop()
+    return df.copy()
+
+def clear_cache():
+    _fetch_cached.clear()
+
+def load_tables(*names):
+    table_map = {
+        'inventory': ('inventory', 'rm_code'),
+        'packaging': ('packaging', 'pm_code'),
+        'finished_goods': ('finished_products', 'fp_code'),
+        'formulas': ('formulas', None),
+        'cogs_records': ('cogs_records', 'product_name'),
+        'sales_records': ('sales_records', 'sale_date'),
+        'consignment': ('consignment_records', 'created_at'),
+        'clients': ('clients', 'client_name'),
+    }
+    result = {}
+    for name in names:
+        tbl, sort = table_map[name]
+        result[name] = fetch_vault_data(tbl, sort)
+    return result
 
 # --- PDF Engines ---
 def generate_order_pdf(order_ref, items_df, client_name, date_str):
@@ -283,18 +310,10 @@ if check_password():
         st.write("<br><br>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.rerun()
 
-    # --- Fetch Global Data Securely ---
-    inventory = fetch_vault_data('inventory', 'rm_code')
-    packaging = fetch_vault_data('packaging', 'pm_code')
-    finished_goods = fetch_vault_data('finished_products', 'fp_code')
-    formulas_df = fetch_vault_data('formulas')
-    cogs_records_df = fetch_vault_data('cogs_records', 'product_name')
-    sales_records_df = fetch_vault_data('sales_records', 'sale_date')
-    consignment_df = fetch_vault_data('consignment_records', 'created_at')
-    clients_df = fetch_vault_data('clients', 'client_name')
-
     # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":
+        d = load_tables('sales_records', 'finished_goods', 'packaging', 'clients')
+        sales_records_df = d['sales_records']; finished_goods = d['finished_goods']; packaging = d['packaging']; clients_df = d['clients']
         st.title("Sales & Revenue Tracker")
         st.markdown("<p style='color: #64748B;'>Monitor order volume, track pending receivables, and manage vault stock deductions.</p>", unsafe_allow_html=True)
         if not sales_records_df.empty:
@@ -356,7 +375,7 @@ if check_password():
                         if row['status'] != orig['status']:
                             supabase.table('sales_records').update({'status': row['status']}).eq('id', int(row['id'])).execute()
                     st.success("Ledger payments synchronized!")
-                    st.rerun()
+                    clear_cache(); st.rerun()
             selected_sales = edited_sales[edited_sales['🔍'] == True]
             if not selected_sales.empty:
                 sel_id = selected_sales.iloc[0]['id']
@@ -397,7 +416,7 @@ if check_password():
                                 supabase.table('sales_records').update(update_data).eq('id', int(erow['id'])).execute()
                             st.success("Order updated with new pricing!")
                             time.sleep(1)
-                            st.rerun()
+                            clear_cache(); st.rerun()
                     col_pdf, col_rev = st.columns(2)
                     with col_pdf:
                         pdf_bytes = generate_order_pdf(str(ref_num), order_items, str(sale_item['account']), sale_item['sale_date'].strftime('%Y-%m-%d'))
@@ -417,7 +436,7 @@ if check_password():
                                     supabase.table('sales_records').delete().eq('id', int(sel_id)).execute()
                                     st.success("Transaction reversed! Financials updated and FP stock restored.")
                                     time.sleep(1)
-                                    st.rerun()
+                                    clear_cache(); st.rerun()
                                 else:
                                     st.error("Incorrect passcode.")
         else:
@@ -475,10 +494,10 @@ if check_password():
                             lines_to_remove = i
                 if lines_to_remove is not None:
                     st.session_state.order_lines.pop(lines_to_remove)
-                    st.rerun()
+                    clear_cache(); st.rerun()
                 if st.button("＋ Add Another Product"):
                     st.session_state.order_lines.append({"product": fp_opts[0], "qty": 1, "price": None})
-                    st.rerun()
+                    clear_cache(); st.rerun()
                 st.write("---")
                 st.markdown("#### 3. Order Discount")
                 ord_disc = st.number_input("Order-Level Discount ($)", min_value=0.0, value=0.0, step=1.0, key="ord_disc")
@@ -546,10 +565,12 @@ if check_password():
                             st.session_state.order_lines = [{"product": fp_opts[0], "qty": 1, "price": None}]
                             st.success(f"✅ Order {order_ref} logged! All stock deducted.")
                             time.sleep(1.5)
-                            st.rerun()
+                            clear_cache(); st.rerun()
 
     # --- 1.1 CLIENTS DATABASE ---
     elif menu == "Clients":
+        d = load_tables('clients', 'sales_records')
+        clients_df = d['clients']; sales_records_df = d['sales_records']
         st.title("Client Database")
         st.markdown("<p style='color: #64748B;'>Manage your client and account records. Select a client to view their order history.</p>", unsafe_allow_html=True)
         if not clients_df.empty:
@@ -567,7 +588,7 @@ if check_password():
                         if any(row[c] != orig[c] for c in ['client_name', 'business_name', 'phone', 'email', 'channel']):
                             supabase.table('clients').update({"client_name": row['client_name'], "business_name": row['business_name'], "phone": row['phone'], "email": row['email'], "channel": row['channel']}).eq('id', int(orig['id'])).execute()
                     st.success("Client records synchronized!")
-                    st.rerun()
+                    clear_cache(); st.rerun()
             selected_clients = edited_clients[edited_clients['🔍'] == True]
             if not selected_clients.empty:
                 client_row = clients_df.loc[selected_clients.index[0]]
@@ -600,7 +621,7 @@ if check_password():
                         del_pass = st.text_input("Authorization Passcode", type="password", key="del_client")
                         if st.button("Erase Client Record") and del_pass == "lab2026":
                             supabase.table('clients').delete().eq('id', int(client_row['id'])).execute()
-                            st.rerun()
+                            clear_cache(); st.rerun()
         else:
             st.info("No clients registered yet.")
         st.write("---")
@@ -619,10 +640,12 @@ if check_password():
                 if st.form_submit_button("Register Client", type="primary") and new_name:
                     supabase.table('clients').insert({"client_name": new_name, "business_name": new_biz, "phone": new_phone, "email": new_email, "address": new_addr, "channel": new_channel, "notes": new_notes}).execute()
                     st.success(f"Client '{new_name}' registered!")
-                    time.sleep(1); st.rerun()
+                    time.sleep(1); clear_cache(); st.rerun()
 
     # --- 1.5 CONSIGNMENT TRACKER ---
     elif menu == "Consignment Tracker":
+        d = load_tables('consignment', 'finished_goods')
+        consignment_df = d['consignment']; finished_goods = d['finished_goods']
         st.title("Consignment Agreements")
         st.markdown("<p style='color: #64748B;'>Manage goods sitting on partner shelves. Consigned goods are deducted from your lab stock but do not count as Revenue until explicitly marked as sold here.</p>", unsafe_allow_html=True)
         if not consignment_df.empty:
@@ -673,7 +696,7 @@ if check_password():
                                 gm = (net_profit / gross_rev) if gross_rev > 0 else 0.0
                                 supabase.table('sales_records').insert({"order_description": cons_item['product_name'], "quantity": units_sold, "unit_price": cons_item['wholesale_price'], "gross_revenue": gross_rev, "cogs": cogs, "net_profit": net_profit, "account": cons_item['partner_name'], "order_ref_number": ref_num, "sale_date": datetime.today().strftime('%Y-%m-%d'), "gm": gm, "channel": "Consignment Payout", "status": payment_status}).execute()
                                 st.success(f"Successfully converted {units_sold} consigned units into Sales Revenue!")
-                                time.sleep(1.5); st.rerun()
+                                time.sleep(1.5); clear_cache(); st.rerun()
                     else:
                         st.success("✅ All units from this consignment line have been sold and logged.")
         else:
@@ -710,10 +733,12 @@ if check_password():
                             supabase.table('finished_products').update({'stock_quantity': curr_stock - qty}).eq('id', int(fg_match['id'])).execute()
                             supabase.table('consignment_records').insert({"partner_name": partner, "order_ref_number": ref, "product_name": prod, "qty_consigned": qty, "unit_cogs": def_cogs, "retail_price": retail_p, "wholesale_price": wholesale_p}).execute()
                             st.success("Consignment logged securely!")
-                            time.sleep(1.5); st.rerun()
+                            time.sleep(1.5); clear_cache(); st.rerun()
 
     # --- 2. FINANCIAL OVERVIEW ---
     elif menu == "Financial Overview":
+        d = load_tables('inventory', 'packaging', 'finished_goods', 'consignment')
+        inventory = d['inventory']; packaging = d['packaging']; finished_goods = d['finished_goods']; consignment_df = d['consignment']
         st.title("Financial Overview")
         st.markdown("<p style='color: #64748B;'>Live tracking of physical assets, inventory valuation, and retail projections.</p>", unsafe_allow_html=True)
         st.write("##")
@@ -738,6 +763,8 @@ if check_password():
 
     # --- 3. BALANCE SHEET GENERATOR ---
     elif menu == "Balance Sheet":
+        d = load_tables('inventory', 'packaging', 'finished_goods', 'consignment', 'sales_records')
+        inventory = d['inventory']; packaging = d['packaging']; finished_goods = d['finished_goods']; consignment_df = d['consignment']; sales_records_df = d['sales_records']
         st.title("Balance Sheet Generator")
         st.markdown("<p style='color: #64748B;'>Generate a professional financial statement summarizing assets, liabilities, and owner's equity.</p>", unsafe_allow_html=True)
         rm_total = (inventory['price_per_kg'] * inventory['quantity_kg']).sum() if not inventory.empty else 0.0
@@ -783,6 +810,8 @@ if check_password():
 
     # --- 4. RAW MATERIAL LIBRARY ---
     elif menu == "Raw Material Library":
+        d = load_tables('inventory')
+        inventory = d['inventory']
         st.title("Raw Material Library")
         st.markdown("<p style='color: #64748B;'>Manage essential oils, carriers, and active ingredients. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
         if not inventory.empty:
@@ -794,7 +823,7 @@ if check_password():
                         orig = inventory.loc[idx]
                         if row['trade_name'] != orig['trade_name'] or row['inci_name'] != orig['inci_name'] or row['price_per_kg'] != orig['price_per_kg']:
                             supabase.table('inventory').update({"trade_name": row['trade_name'], "inci_name": row['inci_name'], "price_per_kg": row['price_per_kg']}).eq('id', int(orig['id'])).execute()
-                    st.rerun()
+                    clear_cache(); st.rerun()
             selected_mats = edited_inv[edited_inv['🔍'] == True]
             if not selected_mats.empty:
                 mat = inventory.loc[selected_mats.index[0]]; st.write("##")
@@ -825,11 +854,11 @@ if check_password():
                                 new_total_kg = ed_lots['Qty (Kg)'].sum() if 'Qty (Kg)' in ed_lots.columns else 0.0
                                 supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": float(new_total_kg)}).eq('id', int(mat['id'])).execute()
                                 st.success("Lots updated successfully! Total Stock recalculated.")
-                                time.sleep(1.5); st.rerun()
+                                time.sleep(1.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
                         if st.button("Erase Record") and del_pass == "lab2026":
-                            supabase.table('inventory').delete().eq('id', int(mat['id'])).execute(); st.rerun()
+                            supabase.table('inventory').delete().eq('id', int(mat['id'])).execute(); clear_cache(); st.rerun()
         st.write("---")
         with st.expander("➕ Register New Material"):
             with st.form("add_material", clear_on_submit=True):
@@ -844,10 +873,12 @@ if check_password():
                     next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
                     rm_code = f"RM{next_id:05d}"
                     init_lot = [{"Lot Number": new_lot, "Mfg Date": new_mfg.strftime('%Y-%m-%d'), "Rcv Date": new_rcv.strftime('%Y-%m-%d'), "Exp Date": new_exp.strftime('%Y-%m-%d'), "Qty (Kg)": float(new_q), "Current": True}]
-                    supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q, "lots": init_lot}).execute(); st.rerun()
+                    supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q, "lots": init_lot}).execute(); clear_cache(); st.rerun()
 
     # --- 5. PACKAGING LIBRARY ---
     elif menu == "Packaging Library":
+        d = load_tables('packaging')
+        packaging = d['packaging']
         st.title("Packaging Library")
         st.markdown("<p style='color: #64748B;'>Track bottles, droppers, caps, and labels. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
         if not packaging.empty:
@@ -859,7 +890,7 @@ if check_password():
                         orig = packaging.loc[idx]
                         if row['material_name'] != orig['material_name'] or row['supplier'] != orig['supplier'] or row['cost_per_unit'] != orig['cost_per_unit']:
                             supabase.table('packaging').update({"material_name": row['material_name'], "supplier": row['supplier'], "cost_per_unit": row['cost_per_unit']}).eq('id', int(orig['id'])).execute()
-                    st.rerun()
+                    clear_cache(); st.rerun()
             selected_pk = edited_pk[edited_pk['🔍'] == True]
             if not selected_pk.empty:
                 p_mat = packaging.loc[selected_pk.index[0]]; st.write("##")
@@ -886,10 +917,10 @@ if check_password():
                                 new_total_qty = ed_lots['Qty (Units)'].sum() if 'Qty (Units)' in ed_lots.columns else 0
                                 supabase.table('packaging').update({"lots": new_lots_json, "remaining_quantity": int(new_total_qty)}).eq('id', int(p_mat['id'])).execute()
                                 st.success("Lots updated successfully! Total Stock recalculated.")
-                                time.sleep(1.5); st.rerun()
+                                time.sleep(1.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
                         if st.button("Erase Record") and st.text_input("Authorization", type="password", key="dpp") == "lab2026":
-                            supabase.table('packaging').delete().eq('id', int(p_mat['id'])).execute(); st.rerun()
+                            supabase.table('packaging').delete().eq('id', int(p_mat['id'])).execute(); clear_cache(); st.rerun()
         st.write("---")
         with st.expander("➕ Register New Packaging"):
             with st.form("add_packaging", clear_on_submit=True):
@@ -902,10 +933,12 @@ if check_password():
                     next_pm = 1 if packaging.empty else int(packaging['id'].max()) + 1
                     pm_code = f"PM{next_pm:05d}"
                     init_lot = [{"Lot Number": new_lot, "Rcv Date": new_rcv.strftime('%Y-%m-%d'), "Qty (Units)": int(p_q), "Current": True}]
-                    supabase.table('packaging').insert({"pm_code": pm_code, "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q, "lots": init_lot}).execute(); st.rerun()
+                    supabase.table('packaging').insert({"pm_code": pm_code, "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q, "lots": init_lot}).execute(); clear_cache(); st.rerun()
 
     # --- 6. FINISHED PRODUCTS LIBRARY ---
     elif menu == "Finished Products":
+        d = load_tables('finished_goods', 'cogs_records')
+        finished_goods = d['finished_goods']; cogs_records_df = d['cogs_records']
         st.title("Finished Products")
         st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
         if not finished_goods.empty:
@@ -920,7 +953,7 @@ if check_password():
                         if row['stock_quantity'] != orig['stock_quantity']:
                             supabase.table('finished_products').update({"stock_quantity": row['stock_quantity']}).eq('id', int(orig['id'])).execute()
                     st.success("Finished goods synced!")
-                    st.rerun()
+                    clear_cache(); st.rerun()
             selected_fp = edited_fp[edited_fp['🔍'] == True]
             if not selected_fp.empty:
                 fp_item = finished_goods.loc[selected_fp.index[0]]
@@ -934,7 +967,7 @@ if check_password():
                     c3.write(f"**Profit Margin:** {margin:.1f}%")
                     with st.expander("System Actions"):
                         if st.button("Erase Record") and st.text_input("Authorization Passcode", type="password", key="dfpp") == "lab2026":
-                            supabase.table('finished_products').delete().eq('id', int(fp_item['id'])).execute(); st.rerun()
+                            supabase.table('finished_products').delete().eq('id', int(fp_item['id'])).execute(); clear_cache(); st.rerun()
         else:
             st.info("No finished products currently in stock.")
         st.write("---")
@@ -959,12 +992,14 @@ if check_password():
                         else:
                             next_fp = 1 if finished_goods.empty else int(finished_goods['id'].max()) + 1
                             supabase.table('finished_products').insert({"fp_code": f"FP{next_fp:05d}", "product_name": target_name, "stock_quantity": fp_q, "unit_cogs": target_cogs, "retail_price": target_retail}).execute()
-                        st.rerun()
+                        clear_cache(); st.rerun()
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
 
     # --- 7. FORMULA LIBRARY ---
     elif menu == "Formula Library":
+        d = load_tables('formulas', 'inventory')
+        formulas_df = d['formulas']; inventory = d['inventory']
         st.title("📚 Formula Library")
         st.markdown("<p style='color: #64748B;'>Inspect read-only recipes and execute live manufacturing batches.</p>", unsafe_allow_html=True)
         if not formulas_df.empty:
@@ -1034,7 +1069,7 @@ if check_password():
                                 for d in calc_data:
                                     supabase.table('inventory').update({'quantity_kg': d['stock_kg'] - d['req_kg']}).eq('trade_name', d['Material']).execute()
                                 supabase.table('production_records').insert({"fr_code": sel_f['fr_code'], "formula_name": sel_f['formula_name'], "batch_number": b_no, "lot_number": l_no, "batch_size_g": b_size, "total_cost": total_cost}).execute()
-                                st.balloons(); st.rerun()
+                                st.balloons(); clear_cache(); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     st.divider()
                     c_act1, c_act2, c_act3, c_act4 = st.columns(4)
@@ -1048,7 +1083,7 @@ if check_password():
                                 st.session_state.edit_fr_code = sel_f['fr_code']
                                 if "base_fr_code" in st.session_state: del st.session_state["base_fr_code"]
                                 st.session_state.active_nav = "Formula Builder"
-                                st.rerun()
+                                clear_cache(); st.rerun()
                     with c_act2:
                         with st.expander("🔄 New Edition"):
                             if st.button("Draft Version", use_container_width=True):
@@ -1064,7 +1099,7 @@ if check_password():
                                 st.session_state.draft_procedure = str(proc_text) if proc_text != "No written procedure documented for this formula." else ""
                                 if "edit_formula_id" in st.session_state: del st.session_state["edit_formula_id"]
                                 st.session_state.active_nav = "Formula Builder"
-                                st.rerun()
+                                clear_cache(); st.rerun()
                     with c_act3:
                         with st.expander("📋 Duplicate"):
                             if st.button("Copy to New Base", use_container_width=True):
@@ -1074,17 +1109,19 @@ if check_password():
                                 for k in ["edit_formula_id", "edit_fr_code", "base_fr_code"]:
                                     if k in st.session_state: del st.session_state[k]
                                 st.session_state.active_nav = "Formula Builder"
-                                st.rerun()
+                                clear_cache(); st.rerun()
                     with c_act4:
                         with st.expander("🗑️ Erase"):
                             del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
                             if st.button("Permanently Delete", use_container_width=True) and del_f_pass == "lab2026":
-                                supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); st.rerun()
+                                supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); clear_cache(); st.rerun()
         else:
             st.info("No formulas architected yet.")
 
     # --- 7.5 FORMULA BUILDER ---
     elif menu == "Formula Builder":
+        d = load_tables('formulas', 'inventory')
+        formulas_df = d['formulas']; inventory = d['inventory']
         st.title("⚙️ Formula Builder")
         st.markdown("<p style='color: #64748B;'>Draft, calculate, and version control your recipes here.</p>", unsafe_allow_html=True)
         c_build, c_metrics = st.columns([3, 2])
@@ -1095,7 +1132,7 @@ if check_password():
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                     for key in ["draft_name", "edit_formula_id", "edit_fr_code", "draft_procedure"]:
                         if key in st.session_state: del st.session_state[key]
-                    st.rerun()
+                    clear_cache(); st.rerun()
                 st.write("")
             elif "base_fr_code" in st.session_state:
                 base_disp = st.session_state.base_fr_code.split('-')[0]
@@ -1104,7 +1141,7 @@ if check_password():
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                     for key in ["draft_name", "base_fr_code", "draft_procedure"]:
                         if key in st.session_state: del st.session_state[key]
-                    st.rerun()
+                    clear_cache(); st.rerun()
                 st.write("")
             f_name = st.text_input("Formula Moniker", value=st.session_state.get("draft_name", ""), placeholder="e.g., Actiflam Hair Growth Oil")
             if "builder" not in st.session_state: 
@@ -1158,6 +1195,8 @@ if check_password():
 
     # --- 8. COGS CALCULATOR ---
     elif menu == "COGS Calculator":
+        d = load_tables('formulas', 'inventory', 'packaging', 'cogs_records')
+        formulas_df = d['formulas']; inventory = d['inventory']; packaging = d['packaging']; cogs_records_df = d['cogs_records']
         st.title("Cost of Goods Sold (COGS)")
         st.markdown("<p style='color: #64748B;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
         with st.container(border=True):
@@ -1237,7 +1276,7 @@ if check_password():
                 if cogs_name:
                     supabase.table('cogs_records').insert({"product_name": cogs_name, "formula_name": n_only if sel_form else "None", "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom", "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl, "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct, "version": 1, "is_active": True}).execute()
                     st.success(f"Saved profile: {cogs_name}")
-                    st.rerun()
+                    clear_cache(); st.rerun()
                 else:
                     st.error("Please enter a Product Name before saving.")
         st.write("---")
@@ -1265,7 +1304,7 @@ if check_password():
                             new_margin = ((new_retail - new_cogs) / new_retail * 100) if new_retail > 0 else 0.0
                             supabase.table('cogs_records').update({"product_name": row['product_name'], "target_retail": new_retail, "gross_margin_pct": new_margin}).eq('id', int(orig['id'])).execute()
                     st.success("COGS profiles synced!")
-                    st.rerun()
+                    clear_cache(); st.rerun()
             selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
             if not selected_cogs.empty:
                 cogs_item = active_cogs.loc[selected_cogs.index[0]]
@@ -1310,7 +1349,7 @@ if check_password():
                                 supabase.table('cogs_records').update({"is_active": False}).eq('id', int(cogs_item['id'])).execute()
                                 supabase.table('cogs_records').insert({"product_name": cogs_item['product_name'], "formula_name": recalc_formula_name, "fill_weight_g": recalc_fill_wt, "primary_packaging": cogs_item['primary_packaging'], "bulk_cost": recalc_bulk, "packaging_cost": recalc_pack, "mfg_cost": recalc_mfg, "label_cost": recalc_lbl, "total_cogs": recalc_total, "target_retail": old_retail, "gross_margin_pct": new_margin, "version": int(cogs_item.get('version', 1) or 1) + 1, "is_active": True, "parent_id": int(cogs_item['id'])}).execute()
                                 st.success("New COGS version created! Old version archived.")
-                                time.sleep(1); st.rerun()
+                                time.sleep(1); clear_cache(); st.rerun()
                         else:
                             st.info("COGS is already up to date with current RM prices.")
                     # --- VIEW OLDER VERSIONS ---
@@ -1334,7 +1373,7 @@ if check_password():
                         del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
                         if st.button("Erase COGS Profile"):
                             if del_cogs_pass == "lab2026":
-                                supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); st.rerun()
+                                supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); clear_cache(); st.rerun()
                             else: st.error("Incorrect passcode.")
         else: st.info("No COGS profiles saved in the vault.")
 
