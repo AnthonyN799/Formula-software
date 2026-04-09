@@ -219,7 +219,7 @@ def generate_partner_inventory_pdf(partner_name, items_df, date_str):
         "1. Title and ownership of all goods listed above remain strictly with Therapeutic Oils until sold to an end consumer.\n"
         "2. The Consignee agrees to display and store the goods appropriately.\n"
         "3. The 'Total Price' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
-        "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
+        "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition.\n"
         "5. This agreement supersedes and replaces all previous statements, agreements, or terms issued prior to the effective date of this document."
     )
     pdf.multi_cell(0, 5, terms)
