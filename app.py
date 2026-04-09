@@ -730,7 +730,7 @@ if check_password():
                     if reset_col2.button("Reset", type="primary", key="reset_cons_btn"):
                         new_s = "Active" if int(reset_qty) < int(cons_item['qty_consigned']) else "Completed"
                         supabase.table('consignment_records').update({'qty_sold': int(reset_qty), 'status': new_s}).eq('id', int(sel_id)).execute()
-st.success("Consignment reset!")
+                        st.success("Consignment reset!")
                         time.sleep(1)
                         _fetch_cached.clear()
                         st.cache_data.clear()
