@@ -805,6 +805,27 @@ if check_password():
                             if key not in ['authenticated', 'user_role', 'user_name', 'active_module', 'active_nav']:
                                 del st.session_state[key]
                         st.rerun()
+                    with st.expander("🗑️ Delete Consignment Record"):
+                        del_cons_pass = st.text_input("Authorization Passcode", type="password", key="del_cons_pass")
+                        restore_stock = st.checkbox("Restore stock to Finished Products", value=True, key="restore_cons_stock")
+                        if st.button("Permanently Delete This Record", key="del_cons_btn"):
+                            if del_cons_pass == "lab2026":
+                                if restore_stock:
+                                    remaining = int(cons_item['qty_consigned']) - int(cons_item['qty_sold'])
+                                    fp_match = finished_goods[finished_goods['product_name'] == cons_item['product_name']]
+                                    if not fp_match.empty:
+                                        fp_id = int(fp_match.iloc[0]['id'])
+                                        current_stock = int(fp_match.iloc[0]['stock_quantity'])
+                                        supabase.table('finished_products').update({'stock_quantity': current_stock + remaining}).eq('id', fp_id).execute()
+                                supabase.table('consignment_records').delete().eq('id', int(sel_id)).execute()
+                                _fetch_cached.clear()
+                                st.cache_data.clear()
+                                for key in list(st.session_state.keys()):
+                                    if key not in ['authenticated', 'user_role', 'user_name', 'active_module', 'active_nav']:
+                                        del st.session_state[key]
+                                st.rerun()
+                            else:
+                                st.error("Incorrect passcode.")
         else:
             st.info("No consignment records found.")
         st.write("---")
@@ -826,10 +847,13 @@ if check_password():
                     def_retail = float(fg_match['retail_price'])
                     def_cogs = float(fg_match['unit_cogs'])
                     curr_stock = int(fg_match['stock_quantity'])
-                    c4, c5, c6 = st.columns(3)
+                    c4, c5 = st.columns(2)
                     qty = c4.number_input("Qty to Consign", min_value=1, step=1)
-                    retail_p = c5.number_input("Suggested Retail Price ($)", value=def_retail, min_value=0.0)
-                    wholesale_p = c6.number_input("Payout to Maker per Unit ($)", value=def_retail * 0.5, min_value=0.0)
+                    retail_p = c5.number_input("Retail Price per Unit (partner sells at) ($)", value=def_retail, min_value=0.0)
+                    c6, c7 = st.columns(2)
+                    wholesale_p = c6.number_input("Your Price per Unit (partner pays you) ($)", value=def_retail * 0.5, min_value=0.0)
+                    c7.write("")
+                    c7.write(f"**Partner Margin:** ${retail_p - wholesale_p:.2f}/unit ({((retail_p - wholesale_p) / retail_p * 100) if retail_p > 0 else 0:.0f}%)")
                     if st.form_submit_button("Ship Consignment & Deduct Stock", type="primary"):
                         if not partner or not ref:
                             st.error("⚠️ Please provide both the Partner Name and Consignment Ref #.")
