@@ -163,6 +163,7 @@ def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
         "2. The Consignee agrees to display and store the goods appropriately.\n"
         "3. The 'Owed to Maker' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
         "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
+        "5. This agreement supersedes and replaces all previous statements, agreements, or terms issued prior to the effective date of this document."
     )
     pdf.multi_cell(0, 5, terms)
     return pdf.output(dest="S").encode("latin-1")
