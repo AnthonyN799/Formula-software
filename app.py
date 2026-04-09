@@ -722,14 +722,17 @@ if check_password():
                     else:
                         st.success("✅ All units from this consignment line have been sold and logged.")
                 if st.session_state.get("user_role") == "admin":
-                    with st.form("reset_cons_form"):
-                        st.warning("⚠️ Admin: Reset consignment qty_sold if needed")
-                        reset_qty = st.number_input("Set qty_sold to:", min_value=0, max_value=int(cons_item['qty_consigned']), value=int(cons_item['qty_sold']), step=1)
-                        if st.form_submit_button("Reset Consignment"):
-                            new_s = "Active" if reset_qty < int(cons_item['qty_consigned']) else "Completed"
-                            supabase.table('consignment_records').update({'qty_sold': int(reset_qty), 'status': new_s}).eq('id', int(sel_id)).execute()
-                            st.success("Consignment reset!")
-                            clear_cache(); st.rerun()
+                    st.write("---")
+                    st.markdown("**⚠️ Admin: Reset Consignment**")
+                    reset_col1, reset_col2 = st.columns([2, 1])
+                    reset_qty = reset_col1.number_input("Set qty_sold to:", min_value=0, max_value=int(cons_item['qty_consigned']), value=int(cons_item['qty_sold']), step=1, key="reset_cons_qty")
+                    reset_col2.write("<br>", unsafe_allow_html=True)
+                    if reset_col2.button("Reset", type="primary", key="reset_cons_btn"):
+                        new_s = "Active" if int(reset_qty) < int(cons_item['qty_consigned']) else "Completed"
+                        supabase.table('consignment_records').update({'qty_sold': int(reset_qty), 'status': new_s}).eq('id', int(sel_id)).execute()
+                        st.success("Consignment reset!")
+                        time.sleep(1)
+                        clear_cache(); st.rerun()
         else:
             st.info("No consignment records found.")
         st.write("---")
