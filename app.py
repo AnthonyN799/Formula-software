@@ -167,6 +167,53 @@ def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
     pdf.multi_cell(0, 5, terms)
     return pdf.output(dest="S").encode("latin-1")
 
+def generate_partner_inventory_pdf(partner_name, items_df, date_str):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, "Partner Inventory Statement", ln=True, align="C")
+    pdf.ln(10)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(100, 8, f"Partner: {partner_name}")
+    pdf.cell(0, 8, f"Date: {date_str}", ln=True, align="R")
+    pdf.ln(5)
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(55, 8, "Product", border=1)
+    pdf.cell(25, 8, "Ref #", border=1)
+    pdf.cell(20, 8, "Sent", border=1, align="C")
+    pdf.cell(20, 8, "Sold", border=1, align="C")
+    pdf.cell(25, 8, "Remaining", border=1, align="C")
+    pdf.cell(22, 8, "Retail $", border=1, align="R")
+    pdf.cell(23, 8, "Owed $", border=1, align="R")
+    pdf.ln()
+    pdf.set_font("Arial", "", 9)
+    total_remaining = 0
+    total_owed = 0.0
+    for _, row in items_df.iterrows():
+        remaining = int(row['qty_consigned']) - int(row['qty_sold'])
+        owed = float(remaining) * float(row['wholesale_price'])
+        total_remaining += remaining
+        total_owed += owed
+        pdf.cell(55, 8, str(row['product_name'])[:28], border=1)
+        pdf.cell(25, 8, str(row['order_ref_number'])[:12], border=1)
+        pdf.cell(20, 8, str(int(row['qty_consigned'])), border=1, align="C")
+        pdf.cell(20, 8, str(int(row['qty_sold'])), border=1, align="C")
+        pdf.cell(25, 8, str(remaining), border=1, align="C")
+        pdf.cell(22, 8, f"${float(row['retail_price']):,.2f}", border=1, align="R")
+        pdf.cell(23, 8, f"${owed:,.2f}", border=1, align="R")
+        pdf.ln()
+    pdf.ln(3)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(145, 8, f"Total Remaining Units: {total_remaining}", border=1, align="R")
+    pdf.cell(45, 8, f"Total Owed: ${total_owed:,.2f}", border=1, align="R")
+    pdf.ln(15)
+    pdf.set_font("Arial", "I", 9)
+    pdf.cell(0, 6, "This document summarizes all goods currently held on consignment by the above partner.", ln=True)
+    pdf.cell(0, 6, f"Generated on {date_str} by Therapeutic Oils ERP.", ln=True)
+    return pdf.output(dest="S").encode("latin-1")
+
 def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed_assets, ap, debt, total_assets, total_liab, equity):
     pdf = FPDF()
     pdf.add_page()
@@ -677,10 +724,23 @@ if check_password():
             col1, col2 = st.columns(2)
             col1.metric("Unsold Units on Partner Shelves", f"{total_active_units:,}")
             col2.metric("Total Potential Payout Revenue", f"${total_potential_rev:,.2f}")
+            if not active_cons.empty:
+                with st.expander("📄 Generate Partner Inventory Statement"):
+                    partner_names = active_cons['partner_name'].unique().tolist()
+                    sel_partner = st.selectbox("Select Partner", partner_names, key="partner_inv_select")
+                    partner_items = active_cons[active_cons['partner_name'] == sel_partner].copy()
+                    partner_items['Remaining'] = partner_items['qty_consigned'] - partner_items['qty_sold']
+                    partner_items = partner_items[partner_items['Remaining'] > 0]
+                    if not partner_items.empty:
+                        st.dataframe(partner_items[['product_name', 'order_ref_number', 'qty_consigned', 'qty_sold', 'Remaining', 'retail_price', 'wholesale_price']].rename(columns={'product_name': 'Product', 'order_ref_number': 'Ref #', 'qty_consigned': 'Sent', 'qty_sold': 'Sold', 'retail_price': 'Retail $', 'wholesale_price': 'Owed/Unit $'}), use_container_width=True, hide_index=True)
+                        inv_pdf = generate_partner_inventory_pdf(sel_partner, partner_items, datetime.today().strftime('%Y-%m-%d'))
+                        st.download_button(label=f"📄 Download {sel_partner} Inventory PDF", data=inv_pdf, file_name=f"PartnerInventory_{sel_partner.replace(' ', '_')}_{datetime.today().strftime('%Y%m%d')}.pdf", mime="application/pdf", use_container_width=True, type="primary")
+                    else:
+                        st.info(f"No remaining unsold items for {sel_partner}.")
             st.write("---")
             st.markdown("#### Active Consignment Ledgers")
             display_cons = consignment_df.copy().sort_values('created_at', ascending=False)
-            display_cons['Date'] = pd.to_datetime(display_cons['created_at'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('N/A')
+            display_cons['Date'] = pd.to_datetime(display_cons['created_at']).dt.strftime('%Y-%m-%d')
             display_cons['Remaining'] = display_cons['qty_consigned'] - display_cons['qty_sold']
             display_cons.insert(0, '🔍', False)
             with st.container(border=True):
@@ -730,10 +790,11 @@ if check_password():
                     if reset_col2.button("Reset", type="primary", key="reset_cons_btn"):
                         new_s = "Active" if int(reset_qty) < int(cons_item['qty_consigned']) else "Completed"
                         supabase.table('consignment_records').update({'qty_sold': int(reset_qty), 'status': new_s}).eq('id', int(sel_id)).execute()
-                        st.success("Consignment reset!")
-                        time.sleep(1)
                         _fetch_cached.clear()
                         st.cache_data.clear()
+                        for key in list(st.session_state.keys()):
+                            if key not in ['authenticated', 'user_role', 'user_name', 'active_module', 'active_nav']:
+                                del st.session_state[key]
                         st.rerun()
         else:
             st.info("No consignment records found.")
