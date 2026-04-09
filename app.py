@@ -186,8 +186,8 @@ def generate_partner_inventory_pdf(partner_name, items_df, date_str):
     pdf.cell(15, 8, "Sold", border=1, align="C")
     pdf.cell(20, 8, "Remaining", border=1, align="C")
     pdf.cell(22, 8, "Unit Price", border=1, align="R")
-    pdf.cell(22, 8, "Retail $", border=1, align="R")
     pdf.cell(23, 8, "Total Price", border=1, align="R")
+    pdf.cell(22, 8, "Retail/Unit", border=1, align="R")
     pdf.ln()
     pdf.set_font("Arial", "", 9)
     total_remaining = 0
@@ -203,8 +203,8 @@ def generate_partner_inventory_pdf(partner_name, items_df, date_str):
         pdf.cell(15, 8, str(int(row['qty_sold'])), border=1, align="C")
         pdf.cell(20, 8, str(remaining), border=1, align="C")
         pdf.cell(22, 8, f"${float(row['wholesale_price']):,.2f}", border=1, align="R")
-        pdf.cell(22, 8, f"${float(row['retail_price']):,.2f}", border=1, align="R")
         pdf.cell(23, 8, f"${owed:,.2f}", border=1, align="R")
+        pdf.cell(22, 8, f"${float(row['retail_price']):,.2f}", border=1, align="R")
         pdf.ln()
     pdf.ln(5)
     pdf.set_font("Arial", "B", 10)
@@ -217,7 +217,7 @@ def generate_partner_inventory_pdf(partner_name, items_df, date_str):
     terms = (
         "1. Title and ownership of all goods listed above remain strictly with Therapeutic Oils until sold to an end consumer.\n"
         "2. The Consignee agrees to display and store the goods appropriately.\n"
-        "3. The 'Owed to Maker' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
+        "3. The 'Total Price' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
         "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
     )
     pdf.multi_cell(0, 5, terms)
@@ -395,7 +395,7 @@ if check_password():
         st.title("Sales & Revenue Tracker")
         st.markdown("<p style='color: #64748B;'>Monitor order volume, track pending receivables, and manage vault stock deductions.</p>", unsafe_allow_html=True)
         if not sales_records_df.empty:
-            sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'])
+            sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'], errors='coerce')
             sales_records_df['Year'] = sales_records_df['sale_date'].dt.year
             years_available = sorted(sales_records_df['Year'].unique().tolist(), reverse=True)
             c_year, c_target = st.columns([1, 3])
@@ -684,7 +684,7 @@ if check_password():
                     if not sales_records_df.empty:
                         client_sales = sales_records_df[sales_records_df['account'] == client_row['client_name']].copy()
                         if not client_sales.empty:
-                            client_sales['sale_date'] = pd.to_datetime(client_sales['sale_date']).dt.strftime('%Y-%m-%d')
+                            client_sales['sale_date'] = pd.to_datetime(client_sales['sale_date'], errors='coerce').dt.strftime('%Y-%m-%d')
                             st.dataframe(client_sales[['sale_date', 'order_ref_number', 'order_description', 'quantity', 'gross_revenue', 'status']].sort_values('sale_date', ascending=False), use_container_width=True, hide_index=True, column_config={"gross_revenue": st.column_config.NumberColumn("Revenue", format="$%.2f")})
                             total_rev = client_sales['gross_revenue'].sum()
                             total_orders = client_sales['order_ref_number'].nunique()
@@ -749,7 +749,7 @@ if check_password():
             st.write("---")
             st.markdown("#### Active Consignment Ledgers")
             display_cons = consignment_df.copy().sort_values('created_at', ascending=False)
-            display_cons['Date'] = pd.to_datetime(display_cons['created_at']).dt.strftime('%Y-%m-%d')
+            display_cons['Date'] = pd.to_datetime(display_cons['created_at'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('N/A')
             display_cons['Remaining'] = display_cons['qty_consigned'] - display_cons['qty_sold']
             display_cons.insert(0, '🔍', False)
             with st.container(border=True):
@@ -767,7 +767,7 @@ if check_password():
                 with st.container(border=True):
                     st.markdown(f"#### 🤝 Inspecting Consignment: {ref_num if pd.notna(ref_num) else 'Unreferenced'}")
                     st.write(f"**Partner:** {cons_item['partner_name']}")
-                    pdf_bytes = generate_consignment_pdf(str(ref_num), batch_items, str(cons_item['partner_name']), pd.to_datetime(cons_item['created_at']).strftime('%Y-%m-%d'))
+                    pdf_bytes = generate_consignment_pdf(str(ref_num), batch_items, str(cons_item['partner_name']), pd.to_datetime(cons_item['created_at'], errors='coerce').strftime('%Y-%m-%d'))
                     st.download_button(label="📄 Download Official Consignment Agreement PDF", data=pdf_bytes, file_name=f"Consignment_{ref_num}.pdf", mime="application/pdf", use_container_width=True, type="secondary")
                     st.write("---")
                     st.markdown(f"**Log Sales for: {cons_item['product_name']}**")
@@ -1396,7 +1396,7 @@ if check_password():
             else:
                 active_cogs = cogs_records_df.copy()
             display_cogs = active_cogs.copy()
-            display_cogs['Date'] = pd.to_datetime(display_cogs['created_at']).dt.strftime('%Y-%m-%d')
+            display_cogs['Date'] = pd.to_datetime(display_cogs['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
             display_cogs.insert(0, '🔍', False)
             with st.container(border=True):
                 edited_cogs = st.data_editor(
@@ -1473,7 +1473,7 @@ if check_password():
                         else:
                             all_versions['is_active'] = True
                         all_versions['Status'] = all_versions['is_active'].apply(lambda x: "✅ Active" if x else "📦 Archived")
-                        all_versions['Date'] = pd.to_datetime(all_versions['created_at']).dt.strftime('%Y-%m-%d')
+                        all_versions['Date'] = pd.to_datetime(all_versions['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
                         if len(all_versions) > 1:
                             st.dataframe(all_versions[['Date', 'version', 'Status', 'total_cogs', 'target_retail', 'gross_margin_pct']].sort_values('version', ascending=False), use_container_width=True, hide_index=True, column_config={"total_cogs": st.column_config.NumberColumn("COGS", format="$%.2f"), "target_retail": st.column_config.NumberColumn("Retail", format="$%.2f"), "gross_margin_pct": st.column_config.NumberColumn("Margin", format="%.1f%%")})
                         else:
@@ -1511,7 +1511,7 @@ if check_password():
         logs = supabase.table('production_records').select("*").order("created_at", desc=True).execute()
         if logs.data:
             df = pd.DataFrame(logs.data)
-            df['Date'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+            df['Date'] = pd.to_datetime(df['created_at'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
             disp_logs = df.copy()
             disp_logs.insert(0, '🏷️', False)
             st.write("💡 *Check the box next to any batch to generate its GMP physical labels.*")
@@ -1524,7 +1524,7 @@ if check_password():
                 with st.container(border=True):
                     st.markdown(f"#### 🖨️ Label Generator: {s_log['batch_number']}")
                     st.write(f"**Formula:** {s_log['formula_name']} | **Lot:** {s_log['lot_number']} | **Size:** {s_log['batch_size_g']}g")
-                    pdf_bytes = generate_batch_labels_pdf(s_log['formula_name'], s_log['batch_number'], s_log['lot_number'], pd.to_datetime(s_log['created_at']).strftime('%Y-%m-%d'))
+                    pdf_bytes = generate_batch_labels_pdf(s_log['formula_name'], s_log['batch_number'], s_log['lot_number'], pd.to_datetime(s_log['created_at'], errors='coerce').strftime('%Y-%m-%d'))
                     st.download_button(label="📄 Download GMP Batch Label Sheet (PDF)", data=pdf_bytes, file_name=f"Labels_{s_log['batch_number']}.pdf", mime="application/pdf", use_container_width=True, type="primary")
         else: 
             st.info("No records found in the vault.")
