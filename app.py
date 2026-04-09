@@ -702,7 +702,7 @@ if check_password():
                     st.download_button(label="📄 Download Official Consignment Agreement PDF", data=pdf_bytes, file_name=f"Consignment_{ref_num}.pdf", mime="application/pdf", use_container_width=True, type="secondary")
                     st.write("---")
                     st.markdown(f"**Log Sales for: {cons_item['product_name']}**")
-                    remaining_to_sell = cons_item['qty_consigned'] - cons_item['qty_sold']
+                    remaining_to_sell = int(cons_item['qty_consigned']) - int(cons_item['qty_sold'])
                     if remaining_to_sell > 0:
                         with st.form("log_cons_sale"):
                             c1, c2 = st.columns(2)
@@ -721,15 +721,15 @@ if check_password():
                                 time.sleep(1.5); clear_cache(); st.rerun()
                     else:
                         st.success("✅ All units from this consignment line have been sold and logged.")
-                        if st.session_state.get("user_role") == "admin":
-                            with st.form("reset_cons_form"):
-                                st.warning("⚠️ Reset Consignment (Admin Only)")
-                                reset_qty = st.number_input("Reset qty_sold back to:", min_value=0, max_value=int(cons_item['qty_consigned']), value=0, step=1)
-                                if st.form_submit_button("Reset Consignment", type="primary"):
-                                    new_s = "Active" if reset_qty < int(cons_item['qty_consigned']) else "Completed"
-                                    supabase.table('consignment_records').update({'qty_sold': int(reset_qty), 'status': new_s}).eq('id', int(sel_id)).execute()
-                                    st.success("Consignment reset!")
-                                    clear_cache(); st.rerun()
+                if st.session_state.get("user_role") == "admin":
+                    with st.form("reset_cons_form"):
+                        st.warning("⚠️ Admin: Reset consignment qty_sold if needed")
+                        reset_qty = st.number_input("Set qty_sold to:", min_value=0, max_value=int(cons_item['qty_consigned']), value=int(cons_item['qty_sold']), step=1)
+                        if st.form_submit_button("Reset Consignment"):
+                            new_s = "Active" if reset_qty < int(cons_item['qty_consigned']) else "Completed"
+                            supabase.table('consignment_records').update({'qty_sold': int(reset_qty), 'status': new_s}).eq('id', int(sel_id)).execute()
+                            st.success("Consignment reset!")
+                            clear_cache(); st.rerun()
         else:
             st.info("No consignment records found.")
         st.write("---")
