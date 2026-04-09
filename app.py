@@ -709,14 +709,14 @@ if check_password():
                             units_sold = c1.number_input("Units Sold by Partner", min_value=1, max_value=int(remaining_to_sell), step=1)
                             payment_status = c2.selectbox("Has the partner paid you for these yet?", ["Pending", "Paid"])
                             if st.form_submit_button("Log as Revenue & Update Consignment", type="primary"):
-                                new_qty_sold = cons_item['qty_sold'] + units_sold
-                                new_status = "Completed" if new_qty_sold >= cons_item['qty_consigned'] else "Active"
+                                new_qty_sold = int(cons_item['qty_sold']) + int(units_sold)
+                                new_status = "Completed" if new_qty_sold >= int(cons_item['qty_consigned']) else "Active"
                                 supabase.table('consignment_records').update({'qty_sold': int(new_qty_sold), 'status': new_status}).eq('id', int(sel_id)).execute()
-                                gross_rev = units_sold * cons_item['wholesale_price']
-                                cogs = units_sold * cons_item['unit_cogs']
-                                net_profit = gross_rev - cogs
-                                gm = (net_profit / gross_rev) if gross_rev > 0 else 0.0
-                                supabase.table('sales_records').insert({"order_description": cons_item['product_name'], "quantity": units_sold, "unit_price": cons_item['wholesale_price'], "gross_revenue": gross_rev, "cogs": cogs, "net_profit": net_profit, "account": cons_item['partner_name'], "order_ref_number": ref_num, "sale_date": datetime.today().strftime('%Y-%m-%d'), "gm": gm, "channel": "Consignment Payout", "status": payment_status}).execute()
+                                gross_rev = float(units_sold) * float(cons_item['wholesale_price'])
+                                cogs = float(units_sold) * float(cons_item['unit_cogs'])
+                                net_profit = float(gross_rev - cogs)
+                                gm = float(net_profit / gross_rev) if gross_rev > 0 else 0.0
+                                supabase.table('sales_records').insert({"order_description": str(cons_item['product_name']), "quantity": int(units_sold), "unit_price": float(cons_item['wholesale_price']), "gross_revenue": float(gross_rev), "cogs": float(cogs), "net_profit": float(net_profit), "account": str(cons_item['partner_name']), "order_ref_number": str(ref_num), "sale_date": datetime.today().strftime('%Y-%m-%d'), "gm": float(gm), "channel": "Consignment Payout", "status": payment_status}).execute()
                                 st.success(f"Successfully converted {units_sold} consigned units into Sales Revenue!")
                                 time.sleep(1.5); clear_cache(); st.rerun()
                     else:
