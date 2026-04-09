@@ -680,7 +680,7 @@ if check_password():
             st.write("---")
             st.markdown("#### Active Consignment Ledgers")
             display_cons = consignment_df.copy().sort_values('created_at', ascending=False)
-            display_cons['Date'] = pd.to_datetime(display_cons['created_at']).dt.strftime('%Y-%m-%d')
+            display_cons['Date'] = pd.to_datetime(display_cons['created_at'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('N/A')
             display_cons['Remaining'] = display_cons['qty_consigned'] - display_cons['qty_sold']
             display_cons.insert(0, '🔍', False)
             with st.container(border=True):
