@@ -173,20 +173,21 @@ def generate_partner_inventory_pdf(partner_name, items_df, date_str):
     pdf.set_font("Arial", "B", 18)
     pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
     pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 8, "Partner Inventory Statement", ln=True, align="C")
+    pdf.cell(0, 8, "Partner Consignment Statement", ln=True, align="C")
     pdf.ln(10)
     pdf.set_font("Arial", "B", 11)
     pdf.cell(100, 8, f"Partner: {partner_name}")
     pdf.cell(0, 8, f"Date: {date_str}", ln=True, align="R")
     pdf.ln(5)
     pdf.set_font("Arial", "B", 9)
-    pdf.cell(55, 8, "Product", border=1)
+    pdf.cell(45, 8, "Product", border=1)
     pdf.cell(25, 8, "Ref #", border=1)
-    pdf.cell(20, 8, "Sent", border=1, align="C")
-    pdf.cell(20, 8, "Sold", border=1, align="C")
-    pdf.cell(25, 8, "Remaining", border=1, align="C")
+    pdf.cell(18, 8, "Consigned", border=1, align="C")
+    pdf.cell(15, 8, "Sold", border=1, align="C")
+    pdf.cell(20, 8, "Remaining", border=1, align="C")
+    pdf.cell(22, 8, "Unit Price", border=1, align="R")
     pdf.cell(22, 8, "Retail $", border=1, align="R")
-    pdf.cell(23, 8, "Owed $", border=1, align="R")
+    pdf.cell(23, 8, "Total Price", border=1, align="R")
     pdf.ln()
     pdf.set_font("Arial", "", 9)
     total_remaining = 0
@@ -196,22 +197,30 @@ def generate_partner_inventory_pdf(partner_name, items_df, date_str):
         owed = float(remaining) * float(row['wholesale_price'])
         total_remaining += remaining
         total_owed += owed
-        pdf.cell(55, 8, str(row['product_name'])[:28], border=1)
+        pdf.cell(45, 8, str(row['product_name'])[:23], border=1)
         pdf.cell(25, 8, str(row['order_ref_number'])[:12], border=1)
-        pdf.cell(20, 8, str(int(row['qty_consigned'])), border=1, align="C")
-        pdf.cell(20, 8, str(int(row['qty_sold'])), border=1, align="C")
-        pdf.cell(25, 8, str(remaining), border=1, align="C")
+        pdf.cell(18, 8, str(int(row['qty_consigned'])), border=1, align="C")
+        pdf.cell(15, 8, str(int(row['qty_sold'])), border=1, align="C")
+        pdf.cell(20, 8, str(remaining), border=1, align="C")
+        pdf.cell(22, 8, f"${float(row['wholesale_price']):,.2f}", border=1, align="R")
         pdf.cell(22, 8, f"${float(row['retail_price']):,.2f}", border=1, align="R")
         pdf.cell(23, 8, f"${owed:,.2f}", border=1, align="R")
         pdf.ln()
-    pdf.ln(3)
+    pdf.ln(5)
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(145, 8, f"Total Remaining Units: {total_remaining}", border=1, align="R")
-    pdf.cell(45, 8, f"Total Owed: ${total_owed:,.2f}", border=1, align="R")
+    pdf.cell(167, 8, "Total Capital Owed Upon 100% Sell-Through:", border=1, align="R")
+    pdf.cell(23, 8, f"${total_owed:,.2f}", border=1, align="R")
     pdf.ln(15)
-    pdf.set_font("Arial", "I", 9)
-    pdf.cell(0, 6, "This document summarizes all goods currently held on consignment by the above partner.", ln=True)
-    pdf.cell(0, 6, f"Generated on {date_str} by Therapeutic Oils ERP.", ln=True)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 6, "Terms of Consignment:", ln=True)
+    pdf.set_font("Arial", "", 9)
+    terms = (
+        "1. Title and ownership of all goods listed above remain strictly with Therapeutic Oils until sold to an end consumer.\n"
+        "2. The Consignee agrees to display and store the goods appropriately.\n"
+        "3. The 'Owed to Maker' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
+        "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
+    )
+    pdf.multi_cell(0, 5, terms)
     return pdf.output(dest="S").encode("latin-1")
 
 def generate_balance_sheet_pdf(date_str, cash, ar, inv_rm, inv_pm, inv_fg, fixed_assets, ap, debt, total_assets, total_liab, equity):
@@ -740,7 +749,7 @@ if check_password():
             st.write("---")
             st.markdown("#### Active Consignment Ledgers")
             display_cons = consignment_df.copy().sort_values('created_at', ascending=False)
-            display_cons['Date'] = pd.to_datetime(display_cons['created_at'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('N/A')
+            display_cons['Date'] = pd.to_datetime(display_cons['created_at']).dt.strftime('%Y-%m-%d')
             display_cons['Remaining'] = display_cons['qty_consigned'] - display_cons['qty_sold']
             display_cons.insert(0, '🔍', False)
             with st.container(border=True):
