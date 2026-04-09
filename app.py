@@ -711,7 +711,7 @@ if check_password():
                             if st.form_submit_button("Log as Revenue & Update Consignment", type="primary"):
                                 new_qty_sold = cons_item['qty_sold'] + units_sold
                                 new_status = "Completed" if new_qty_sold >= cons_item['qty_consigned'] else "Active"
-                                supabase.table('consignment_records').update({'qty_sold': new_qty_sold, 'status': new_status}).eq('id', int(sel_id)).execute()
+                                supabase.table('consignment_records').update({'qty_sold': int(new_qty_sold), 'status': new_status}).eq('id', int(sel_id)).execute()
                                 gross_rev = units_sold * cons_item['wholesale_price']
                                 cogs = units_sold * cons_item['unit_cogs']
                                 net_profit = gross_rev - cogs
