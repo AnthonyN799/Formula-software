@@ -1332,7 +1332,7 @@ if check_password():
             editable_message = st.text_area("Edit Message", value=full_message, height=200, key="pr_preview")
 
             mc1, mc2 = st.columns(2)
-             if mc1.button("📋 Show Copyable Text", use_container_width=True, type="primary"):
+            if mc1.button("📋 Show Copyable Text", use_container_width=True, type="primary"):
                 st.code(editable_message, language=None)
 
             wa_url = f"https://wa.me/?text={editable_message.replace(chr(10), '%0A').replace(' ', '%20').replace('#', '%23')}"
