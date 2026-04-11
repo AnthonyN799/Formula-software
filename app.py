@@ -90,10 +90,10 @@ def generate_order_pdf(order_ref, items_df, client_name, date_str):
     pdf.set_font("Arial", "B", 18)
     pdf.cell(0, 10, "THERAPEUTIC OILS", ln=True, align="C")
     pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 8, "Order Summary", ln=True, align="C")
+    pdf.cell(0, 8, "Official Order Summary", ln=True, align="C")
     pdf.ln(10)
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(100, 8, f"Client: {client_name}")
+    pdf.cell(100, 8, f"Billed To: {client_name}")
     pdf.cell(0, 8, f"Date: {date_str}", ln=True, align="R")
     pdf.cell(0, 8, f"Order Ref: ORD-{(int(order_ref) + 200):06d}" if str(order_ref).isdigit() else f"Order Ref: {order_ref}", ln=True, align="R")
     pdf.ln(5)
@@ -161,9 +161,8 @@ def generate_consignment_pdf(order_ref, items_df, partner_name, date_str):
     terms = (
         "1. Title and ownership of all goods listed above remain strictly with Therapeutic Oils until sold to an end consumer.\n"
         "2. The Consignee agrees to display and store the goods appropriately.\n"
-        "3. The 'Unit Price' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
-        "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition.\n"
-        "5. This agreement supersedes and replaces all previous statements, agreements, or terms issued prior to the effective date of this document."
+        "3. The 'Owed to Maker' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
+        "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
     )
     pdf.multi_cell(0, 5, terms)
     return pdf.output(dest="S").encode("latin-1")
@@ -218,9 +217,8 @@ def generate_partner_inventory_pdf(partner_name, items_df, date_str):
     terms = (
         "1. Title and ownership of all goods listed above remain strictly with Therapeutic Oils until sold to an end consumer.\n"
         "2. The Consignee agrees to display and store the goods appropriately.\n"
-        "3. The 'Unit Price' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
-        "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition.\n"
-        "5. This agreement supersedes and replaces all previous statements, agreements, or terms issued prior to the effective date of this document."
+        "3. The 'Total Price' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
+        "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
     )
     pdf.multi_cell(0, 5, terms)
     return pdf.output(dest="S").encode("latin-1")
@@ -402,7 +400,7 @@ if check_password():
             years_available = sorted(sales_records_df['Year'].unique().tolist(), reverse=True)
             c_year, c_target = st.columns([1, 3])
             selected_year = c_year.selectbox("Fiscal Year", years_available)
-            annual_target = c_target.number_input("Annual Revenue Target ($)", value=5000, step=5000)
+            annual_target = c_target.number_input("Annual Revenue Target ($)", value=50000, step=5000)
             yr_df = sales_records_df[sales_records_df['Year'] == selected_year]
             yr_rev = yr_df['gross_revenue'].sum()
             yr_profit = yr_df['net_profit'].sum()
@@ -755,7 +753,7 @@ if check_password():
             display_cons['Remaining'] = display_cons['qty_consigned'] - display_cons['qty_sold']
             display_cons.insert(0, '🔍', False)
             with st.container(border=True):
-                edited_cons = st.data_editor(display_cons[['🔍', 'id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status']], use_container_width=True, hide_index=True, disabled=['id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'status'], column_config={"id": None})
+                edited_cons = st.data_editor(display_cons[['🔍', 'id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'wholesale_price', 'retail_price', 'status']], use_container_width=True, hide_index=True, disabled=['id', 'Date', 'partner_name', 'order_ref_number', 'product_name', 'qty_consigned', 'qty_sold', 'Remaining', 'wholesale_price', 'retail_price', 'status'], column_config={"id": None, "wholesale_price": st.column_config.NumberColumn("Your Price", format="$%.2f"), "retail_price": st.column_config.NumberColumn("Retail Price", format="$%.2f")})
             selected_cons = edited_cons[edited_cons['🔍'] == True]
             if not selected_cons.empty:
                 sel_id = selected_cons.iloc[0]['id']
@@ -863,7 +861,7 @@ if check_password():
                             st.error(f"⚠️ You only have {curr_stock} of {prod}. Aborted.")
                         else:
                             supabase.table('finished_products').update({'stock_quantity': curr_stock - qty}).eq('id', int(fg_match['id'])).execute()
-                            supabase.table('consignment_records').insert({"partner_name": partner, "order_ref_number": ref, "product_name": prod, "qty_consigned": qty, "unit_cogs": def_cogs, "retail_price": retail_p, "wholesale_price": wholesale_p}).execute()
+                            supabase.table('consignment_records').insert({"partner_name": str(partner), "order_ref_number": str(ref), "product_name": str(prod), "qty_consigned": int(qty), "unit_cogs": float(def_cogs), "retail_price": float(retail_p), "wholesale_price": float(wholesale_p)}).execute()
                             st.success("Consignment logged securely!")
                             time.sleep(1.5); clear_cache(); st.rerun()
 
