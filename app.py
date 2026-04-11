@@ -350,7 +350,7 @@ if check_password():
     if user_role == "admin":
         MODULES = {
             "📊 Finance & Sales": ["Sales & Revenue", "Analytics", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
-            "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
+            "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products", "Purchase Requisition"],
             "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"],
             "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder", "Price Manager"]
         }
@@ -1269,6 +1269,108 @@ if check_password():
                         clear_cache(); st.rerun()
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
+
+    # --- PURCHASE REQUISITION ---
+    elif menu == "Purchase Requisition":
+        d = load_tables('inventory', 'packaging')
+        inventory = d['inventory']; packaging = d['packaging']
+        st.title("Purchase Requisition")
+        st.markdown("<p style='opacity: 0.6;'>Build a procurement list from your Raw Materials and Packaging inventory. Generate a ready-to-send order message for your suppliers.</p>", unsafe_allow_html=True)
+
+        # Initialize cart in session state
+        if "pr_cart" not in st.session_state:
+            st.session_state.pr_cart = []
+
+        tab_rm, tab_pm = st.tabs(["🧪 Raw Materials", "📦 Packaging Materials"])
+
+        with tab_rm:
+            st.markdown("#### Raw Material Inventory")
+            if not inventory.empty:
+                rm_display = inventory[['rm_code', 'trade_name', 'inci_name', 'quantity_kg', 'price_per_kg']].copy()
+                rm_display['Value ($)'] = (rm_display['price_per_kg'] * rm_display['quantity_kg']).round(2)
+                rm_display = rm_display.rename(columns={'rm_code': 'Code', 'trade_name': 'Material', 'inci_name': 'INCI', 'quantity_kg': 'Stock (Kg)', 'price_per_kg': 'Price/Kg'})
+                st.dataframe(rm_display, use_container_width=True, hide_index=True, column_config={"Price/Kg": st.column_config.NumberColumn(format="$%.2f"), "Value ($)": st.column_config.NumberColumn(format="$%.2f")})
+                st.write("---")
+                st.markdown("#### Add to Requisition")
+                rc1, rc2, rc3 = st.columns([3, 1, 1])
+                rm_opts = inventory['trade_name'].tolist()
+                sel_rm = rc1.selectbox("Select Material", rm_opts, key="pr_rm_select")
+                rm_qty = rc2.number_input("Qty (Kg)", min_value=0.1, value=1.0, step=0.5, key="pr_rm_qty")
+                rc3.write("<br>", unsafe_allow_html=True)
+                if rc3.button("Add to List", key="pr_rm_add", type="primary"):
+                    rm_row = inventory[inventory['trade_name'] == sel_rm].iloc[0]
+                    st.session_state.pr_cart.append({"type": "RM", "code": rm_row['rm_code'], "name": sel_rm, "qty": rm_qty, "unit": "Kg", "current_stock": float(rm_row['quantity_kg']), "supplier": ""})
+                    st.rerun()
+            else:
+                st.info("No raw materials registered.")
+
+        with tab_pm:
+            st.markdown("#### Packaging Inventory")
+            if not packaging.empty:
+                pm_display = packaging[['pm_code', 'material_name', 'supplier', 'remaining_quantity', 'cost_per_unit']].copy()
+                pm_display = pm_display.rename(columns={'pm_code': 'Code', 'material_name': 'Material', 'supplier': 'Supplier', 'remaining_quantity': 'Stock', 'cost_per_unit': 'Cost/Unit'})
+                st.dataframe(pm_display, use_container_width=True, hide_index=True, column_config={"Cost/Unit": st.column_config.NumberColumn(format="$%.2f")})
+                st.write("---")
+                st.markdown("#### Add to Requisition")
+                pc1, pc2, pc3 = st.columns([3, 1, 1])
+                pm_opts = packaging['material_name'].tolist()
+                sel_pm = pc1.selectbox("Select Material", pm_opts, key="pr_pm_select")
+                pm_qty = pc2.number_input("Qty (Units)", min_value=1, value=10, step=5, key="pr_pm_qty")
+                pc3.write("<br>", unsafe_allow_html=True)
+                if pc3.button("Add to List", key="pr_pm_add", type="primary"):
+                    pm_row = packaging[packaging['material_name'] == sel_pm].iloc[0]
+                    st.session_state.pr_cart.append({"type": "PM", "code": pm_row['pm_code'], "name": sel_pm, "qty": pm_qty, "unit": "Units", "current_stock": int(pm_row['remaining_quantity']), "supplier": str(pm_row.get('supplier', ''))})
+                    st.rerun()
+            else:
+                st.info("No packaging materials registered.")
+
+        # --- Requisition Cart ---
+        st.write("---")
+        st.markdown("#### 📋 Procurement Requisition List")
+        if st.session_state.pr_cart:
+            cart_df = pd.DataFrame(st.session_state.pr_cart)
+            cart_display = cart_df[['type', 'code', 'name', 'qty', 'unit', 'current_stock', 'supplier']].copy()
+            cart_display = cart_display.rename(columns={'type': 'Type', 'code': 'Code', 'name': 'Material', 'qty': 'Order Qty', 'unit': 'Unit', 'current_stock': 'Current Stock', 'supplier': 'Supplier'})
+            st.dataframe(cart_display, use_container_width=True, hide_index=True)
+
+            # Remove items
+            remove_idx = st.selectbox("Remove item from list:", range(len(st.session_state.pr_cart)), format_func=lambda i: f"{st.session_state.pr_cart[i]['name']} ({st.session_state.pr_cart[i]['qty']} {st.session_state.pr_cart[i]['unit']})", key="pr_remove_select")
+            rc_del, rc_clear = st.columns(2)
+            if rc_del.button("Remove Selected", key="pr_remove_btn"):
+                st.session_state.pr_cart.pop(remove_idx)
+                st.rerun()
+            if rc_clear.button("Clear Entire List", key="pr_clear_btn"):
+                st.session_state.pr_cart = []
+                st.rerun()
+
+            # --- Generate Supplier Message ---
+            st.write("---")
+            st.markdown("#### ✉️ Generate Supplier Message")
+            msg_greeting = st.text_input("Greeting", value="Hi, I kindly need the below items:", key="pr_greeting")
+            msg_closing = st.text_input("Closing", value="Please confirm availability and lead time. Thank you.", key="pr_closing")
+
+            # Group by supplier if available
+            items_text = ""
+            for item in st.session_state.pr_cart:
+                qty_str = f"{item['qty']:.1f}" if item['unit'] == "Kg" else str(int(item['qty']))
+                items_text += f"- {item['name']} ({qty_str} {item['unit']})\n"
+
+            full_message = f"{msg_greeting}\n\n{items_text}\n{msg_closing}"
+
+            st.text_area("Preview", value=full_message, height=200, key="pr_preview", disabled=True)
+
+            mc1, mc2 = st.columns(2)
+            # Copy button (using st.code for easy copy)
+            if mc1.button("📋 Copy to Clipboard", use_container_width=True, type="primary"):
+                st.code(full_message, language=None)
+                st.success("Message displayed above — select all and copy!")
+
+            # WhatsApp share
+            wa_url = f"https://wa.me/?text={full_message.replace(chr(10), '%0A').replace(' ', '%20').replace('#', '%23')}"
+            mc2.link_button("💬 Send via WhatsApp", wa_url, use_container_width=True)
+
+        else:
+            st.info("Your requisition list is empty. Browse Raw Materials or Packaging above and add items.")
 
     # --- 7. FORMULA LIBRARY ---
     elif menu == "Formula Library":
