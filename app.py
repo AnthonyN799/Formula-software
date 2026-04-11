@@ -1760,7 +1760,7 @@ if check_password():
                                 for _, pf_row in pf_df.iterrows():
                                     pf_prods = pf_row['products'] if isinstance(pf_row['products'], list) else []
                                     if old_name in pf_prods:
-                                        updated_prods = [final_name if p == old_name else p for p in pf_prods]
+                                        updated_prods = list(dict.fromkeys([final_name if p == old_name else p for p in pf_prods]))
                                         supabase.table('portfolios').update({"products": updated_prods}).eq('id', int(pf_row['id'])).execute()
                                         changes += 1
                             st.success(f"Renamed '{old_name}' → '{final_name}' across {changes} records.")
@@ -1854,7 +1854,7 @@ if check_password():
                         elif len(pf_products) < 2:
                             st.error("Select at least 2 products to group.")
                         else:
-                            supabase.table('portfolios').insert({"portfolio_name": pf_name.strip(), "products": pf_products, "description": pf_desc}).execute()
+                            supabase.table('portfolios').insert({"portfolio_name": pf_name.strip(), "products": list(dict.fromkeys(pf_products)), "description": pf_desc}).execute()
                             st.success(f"Portfolio '{pf_name}' created with {len(pf_products)} products!")
                             time.sleep(1); clear_cache(); st.rerun()
 
@@ -1887,7 +1887,7 @@ if check_password():
                         edit_products = st.multiselect(f"Edit products in '{pf['portfolio_name']}':", all_product_names, default=valid_defaults, key=f"edit_pf_{pf['id']}")
                         ec1, ec2 = st.columns(2)
                         if ec1.button("Update Products", key=f"upd_pf_{pf['id']}"):
-                            supabase.table('portfolios').update({"products": edit_products}).eq('id', int(pf['id'])).execute()
+                            supabase.table('portfolios').update({"products": list(dict.fromkeys(edit_products))}).eq('id', int(pf['id'])).execute()
                             st.success("Portfolio updated!")
                             clear_cache(); st.rerun()
                         if ec2.button("Delete Portfolio", key=f"del_pf_{pf['id']}"):
