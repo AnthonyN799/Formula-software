@@ -333,7 +333,7 @@ def check_password():
         username = st.text_input("Username", placeholder="Enter your name...")
         password = st.text_input("Passcode", type="password", placeholder="Enter passcode...")
         if st.button("Authenticate", use_container_width=True, type="primary"):
-            users = {"anthony": {"pass": "lab2026", "role": "admin"}, "fadia": {"pass": "Fadia123", "role": "cook"}}
+            users = {"anthony": {"pass": "lab2026", "role": "admin"}, "fadia": {"pass": "Fadia123", "role": "Analyst"}}
             matched = users.get(username.strip().lower())
             if matched and password == matched["pass"]:
                 st.session_state["authenticated"] = True
