@@ -352,7 +352,7 @@ if check_password():
             "📊 Finance & Sales": ["Sales & Revenue", "Analytics", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
             "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
             "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"],
-            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder"]
+            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder", "Price Manager"]
         }
     else:
         MODULES = {
@@ -1895,3 +1895,141 @@ if check_password():
                             clear_cache(); st.rerun()
         else:
             st.info("No portfolios created yet. Use the form above to group related products.")
+
+    # --- PRICE MANAGER ---
+    elif menu == "Price Manager":
+        d = load_tables('finished_goods', 'cogs_records', 'sales_records', 'consignment')
+        finished_goods = d['finished_goods']; cogs_records_df = d['cogs_records']; sales_records_df = d['sales_records']; consignment_df = d['consignment']
+        st.title("Price Manager")
+        st.markdown("<p style='opacity: 0.6;'>Overview of all pricing across the system. Flags discrepancies between COGS profiles, Finished Products, and actual sales prices.</p>", unsafe_allow_html=True)
+
+        # --- 1. Master Price Table ---
+        st.markdown("#### Master Price Overview")
+        price_data = []
+        if not finished_goods.empty:
+            for _, fp in finished_goods.iterrows():
+                row = {"Product": fp['product_name'], "FP Retail": float(fp['retail_price']), "FP COGS": float(fp['unit_cogs']), "FP Margin %": 0.0, "COGS Profile Price": None, "COGS Profile COGS": None, "Avg Sold Price": None, "Min Sold Price": None, "Max Sold Price": None, "Flags": []}
+                if fp['retail_price'] > 0:
+                    row["FP Margin %"] = round(((fp['retail_price'] - fp['unit_cogs']) / fp['retail_price']) * 100, 1)
+                # Match to COGS profile
+                if not cogs_records_df.empty:
+                    if 'is_active' in cogs_records_df.columns:
+                        active_cogs = cogs_records_df[cogs_records_df['is_active'] != False]
+                    else:
+                        active_cogs = cogs_records_df
+                    cogs_match = active_cogs[active_cogs['product_name'] == fp['product_name']]
+                    if not cogs_match.empty:
+                        cogs_row = cogs_match.iloc[0]
+                        row["COGS Profile Price"] = float(cogs_row['target_retail'])
+                        row["COGS Profile COGS"] = float(cogs_row['total_cogs'])
+                        if abs(float(cogs_row['target_retail']) - float(fp['retail_price'])) > 0.01:
+                            row["Flags"].append("⚠️ FP retail ≠ COGS target retail")
+                        if abs(float(cogs_row['total_cogs']) - float(fp['unit_cogs'])) > 0.01:
+                            row["Flags"].append("⚠️ FP unit COGS ≠ COGS profile COGS")
+                    else:
+                        row["Flags"].append("❌ No COGS profile found")
+                # Match to actual sales
+                if not sales_records_df.empty:
+                    sold = sales_records_df[sales_records_df['order_description'] == fp['product_name']]
+                    if not sold.empty:
+                        row["Avg Sold Price"] = round(float(sold['unit_price'].mean()), 2)
+                        row["Min Sold Price"] = round(float(sold['unit_price'].min()), 2)
+                        row["Max Sold Price"] = round(float(sold['unit_price'].max()), 2)
+                        if row["Avg Sold Price"] < float(fp['unit_cogs']):
+                            row["Flags"].append("🔴 Avg sold price BELOW COGS")
+                        if row["Min Sold Price"] < float(fp['unit_cogs']):
+                            row["Flags"].append("🟠 Some sales below COGS")
+                        if row["Max Sold Price"] > float(fp['retail_price']) * 1.5:
+                            row["Flags"].append("🟡 Some sales >150% of retail")
+                    else:
+                        row["Flags"].append("ℹ️ Never sold")
+                # Low margin flag
+                if row["FP Margin %"] < 30:
+                    row["Flags"].append("🟠 Margin below 30%")
+                row["Flags"] = " | ".join(row["Flags"]) if row["Flags"] else "✅ OK"
+                price_data.append(row)
+        if price_data:
+            price_df = pd.DataFrame(price_data)
+            # Show flagged items first
+            price_df['has_issue'] = price_df['Flags'].apply(lambda x: 0 if x == "✅ OK" else 1)
+            price_df = price_df.sort_values(['has_issue', 'Product'], ascending=[False, True])
+            st.dataframe(price_df[['Product', 'FP Retail', 'FP COGS', 'FP Margin %', 'COGS Profile Price', 'COGS Profile COGS', 'Avg Sold Price', 'Min Sold Price', 'Max Sold Price', 'Flags']], use_container_width=True, hide_index=True, column_config={
+                "FP Retail": st.column_config.NumberColumn(format="$%.2f"),
+                "FP COGS": st.column_config.NumberColumn(format="$%.2f"),
+                "FP Margin %": st.column_config.NumberColumn(format="%.1f%%"),
+                "COGS Profile Price": st.column_config.NumberColumn(format="$%.2f"),
+                "COGS Profile COGS": st.column_config.NumberColumn(format="$%.2f"),
+                "Avg Sold Price": st.column_config.NumberColumn(format="$%.2f"),
+                "Min Sold Price": st.column_config.NumberColumn(format="$%.2f"),
+                "Max Sold Price": st.column_config.NumberColumn(format="$%.2f"),
+            })
+            # Count issues
+            issues = [r for r in price_data if r['Flags'] != "✅ OK"]
+            if issues:
+                st.warning(f"⚠️ {len(issues)} product(s) have pricing discrepancies. Review the flags above.")
+            else:
+                st.success("✅ All pricing is consistent across the system.")
+
+            # --- 2. Bulk Price Editor ---
+            st.write("---")
+            st.markdown("#### Bulk Retail Price Update")
+            st.info("💡 Edit retail prices below. Changes will update both Finished Products and the active COGS profile.")
+            edit_price_data = []
+            for _, fp in finished_goods.iterrows():
+                edit_price_data.append({"id": int(fp['id']), "Product": fp['product_name'], "Current Retail": float(fp['retail_price']), "New Retail": float(fp['retail_price']), "Unit COGS": float(fp['unit_cogs'])})
+            edit_price_df = pd.DataFrame(edit_price_data)
+            edited_prices = st.data_editor(edit_price_df, use_container_width=True, hide_index=True, disabled=['id', 'Product', 'Current Retail', 'Unit COGS'], column_config={
+                "id": None,
+                "Current Retail": st.column_config.NumberColumn(format="$%.2f"),
+                "New Retail": st.column_config.NumberColumn(format="$%.2f", min_value=0.0),
+                "Unit COGS": st.column_config.NumberColumn(format="$%.2f"),
+            })
+            if st.button("💾 Apply Price Changes", type="primary"):
+                changes = 0
+                for idx, row in edited_prices.iterrows():
+                    if abs(row['New Retail'] - row['Current Retail']) > 0.001:
+                        new_retail = float(row['New Retail'])
+                        unit_cogs = float(row['Unit COGS'])
+                        new_margin = ((new_retail - unit_cogs) / new_retail * 100) if new_retail > 0 else 0.0
+                        # Update Finished Products
+                        supabase.table('finished_products').update({"retail_price": new_retail}).eq('id', int(row['id'])).execute()
+                        # Update active COGS profile
+                        if not cogs_records_df.empty:
+                            if 'is_active' in cogs_records_df.columns:
+                                active_cogs = cogs_records_df[cogs_records_df['is_active'] != False]
+                            else:
+                                active_cogs = cogs_records_df
+                            cogs_match = active_cogs[active_cogs['product_name'] == row['Product']]
+                            if not cogs_match.empty:
+                                supabase.table('cogs_records').update({"target_retail": new_retail, "gross_margin_pct": new_margin}).eq('id', int(cogs_match.iloc[0]['id'])).execute()
+                        changes += 1
+                if changes > 0:
+                    st.success(f"Updated {changes} product price(s)!")
+                    clear_cache(); st.rerun()
+                else:
+                    st.info("No prices were changed.")
+
+            # --- 3. Consignment Price Check ---
+            if not consignment_df.empty:
+                st.write("---")
+                st.markdown("#### Consignment Price Check")
+                active_cons = consignment_df[consignment_df['status'] == 'Active'].copy() if 'status' in consignment_df.columns else consignment_df.copy()
+                if not active_cons.empty:
+                    cons_price_data = []
+                    for _, c in active_cons.iterrows():
+                        fp_match = finished_goods[finished_goods['product_name'] == c['product_name']]
+                        current_retail = float(fp_match.iloc[0]['retail_price']) if not fp_match.empty else None
+                        flags = []
+                        if current_retail and float(c['wholesale_price']) >= current_retail:
+                            flags.append("🔴 Partner price ≥ retail price")
+                        if current_retail and float(c['wholesale_price']) < float(c.get('unit_cogs', 0) or 0):
+                            flags.append("🔴 Partner price below COGS")
+                        cons_price_data.append({"Partner": c['partner_name'], "Product": c['product_name'], "Ref": c['order_ref_number'], "Partner Price": float(c['wholesale_price']), "Retail Price": float(c['retail_price']), "Current FP Retail": current_retail, "Flags": " | ".join(flags) if flags else "✅ OK"})
+                    cons_price_df = pd.DataFrame(cons_price_data)
+                    st.dataframe(cons_price_df, use_container_width=True, hide_index=True, column_config={
+                        "Partner Price": st.column_config.NumberColumn(format="$%.2f"),
+                        "Retail Price": st.column_config.NumberColumn(format="$%.2f"),
+                        "Current FP Retail": st.column_config.NumberColumn(format="$%.2f"),
+                    })
+        else:
+            st.info("No finished products in the system to manage pricing for.")
