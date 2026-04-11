@@ -1906,48 +1906,66 @@ if check_password():
         # --- 1. Master Price Table ---
         st.markdown("#### Master Price Overview")
         price_data = []
+        # Collect ALL unique product names across FP, Sales, COGS, Consignment
+        all_products = set()
         if not finished_goods.empty:
-            for _, fp in finished_goods.iterrows():
-                row = {"Product": fp['product_name'], "FP Retail": float(fp['retail_price']), "FP COGS": float(fp['unit_cogs']), "FP Margin %": 0.0, "COGS Profile Price": None, "COGS Profile COGS": None, "Avg Sold Price": None, "Min Sold Price": None, "Max Sold Price": None, "Flags": []}
+            all_products.update(finished_goods['product_name'].dropna().unique())
+        if not sales_records_df.empty:
+            all_products.update(sales_records_df['order_description'].dropna().unique())
+        if not cogs_records_df.empty:
+            all_products.update(cogs_records_df['product_name'].dropna().unique())
+        all_products = sorted(all_products)
+        for prod_name in all_products:
+            row = {"Product": prod_name, "FP Retail": None, "FP COGS": None, "FP Margin %": None, "COGS Profile Price": None, "COGS Profile COGS": None, "Avg Sold Price": None, "Min Sold Price": None, "Max Sold Price": None, "Flags": []}
+            # Match to Finished Products
+            fp_match = finished_goods[finished_goods['product_name'] == prod_name] if not finished_goods.empty else pd.DataFrame()
+            if not fp_match.empty:
+                fp = fp_match.iloc[0]
+                row["FP Retail"] = float(fp['retail_price'])
+                row["FP COGS"] = float(fp['unit_cogs'])
                 if fp['retail_price'] > 0:
                     row["FP Margin %"] = round(((fp['retail_price'] - fp['unit_cogs']) / fp['retail_price']) * 100, 1)
-                # Match to COGS profile
-                if not cogs_records_df.empty:
-                    if 'is_active' in cogs_records_df.columns:
-                        active_cogs = cogs_records_df[cogs_records_df['is_active'] != False]
-                    else:
-                        active_cogs = cogs_records_df
-                    cogs_match = active_cogs[active_cogs['product_name'] == fp['product_name']]
-                    if not cogs_match.empty:
-                        cogs_row = cogs_match.iloc[0]
-                        row["COGS Profile Price"] = float(cogs_row['target_retail'])
-                        row["COGS Profile COGS"] = float(cogs_row['total_cogs'])
-                        if abs(float(cogs_row['target_retail']) - float(fp['retail_price'])) > 0.01:
-                            row["Flags"].append("⚠️ FP retail ≠ COGS target retail")
-                        if abs(float(cogs_row['total_cogs']) - float(fp['unit_cogs'])) > 0.01:
-                            row["Flags"].append("⚠️ FP unit COGS ≠ COGS profile COGS")
-                    else:
-                        row["Flags"].append("❌ No COGS profile found")
-                # Match to actual sales
-                if not sales_records_df.empty:
-                    sold = sales_records_df[sales_records_df['order_description'] == fp['product_name']]
-                    if not sold.empty:
-                        row["Avg Sold Price"] = round(float(sold['unit_price'].mean()), 2)
-                        row["Min Sold Price"] = round(float(sold['unit_price'].min()), 2)
-                        row["Max Sold Price"] = round(float(sold['unit_price'].max()), 2)
-                        if row["Avg Sold Price"] < float(fp['unit_cogs']):
-                            row["Flags"].append("🔴 Avg sold price BELOW COGS")
-                        if row["Min Sold Price"] < float(fp['unit_cogs']):
-                            row["Flags"].append("🟠 Some sales below COGS")
-                        if row["Max Sold Price"] > float(fp['retail_price']) * 1.5:
-                            row["Flags"].append("🟡 Some sales >150% of retail")
-                    else:
-                        row["Flags"].append("ℹ️ Never sold")
-                # Low margin flag
-                if row["FP Margin %"] < 30:
-                    row["Flags"].append("🟠 Margin below 30%")
-                row["Flags"] = " | ".join(row["Flags"]) if row["Flags"] else "✅ OK"
-                price_data.append(row)
+            else:
+                row["Flags"].append("ℹ️ Not in Finished Products")
+            # Match to COGS profile
+            if not cogs_records_df.empty:
+                if 'is_active' in cogs_records_df.columns:
+                    active_cogs = cogs_records_df[cogs_records_df['is_active'] != False]
+                else:
+                    active_cogs = cogs_records_df
+                cogs_match = active_cogs[active_cogs['product_name'] == prod_name]
+                if not cogs_match.empty:
+                    cogs_row = cogs_match.iloc[0]
+                    row["COGS Profile Price"] = float(cogs_row['target_retail'])
+                    row["COGS Profile COGS"] = float(cogs_row['total_cogs'])
+                    if row["FP Retail"] is not None and abs(float(cogs_row['target_retail']) - row["FP Retail"]) > 0.01:
+                        row["Flags"].append("⚠️ FP retail ≠ COGS target retail")
+                    if row["FP COGS"] is not None and abs(float(cogs_row['total_cogs']) - row["FP COGS"]) > 0.01:
+                        row["Flags"].append("⚠️ FP unit COGS ≠ COGS profile COGS")
+                else:
+                    row["Flags"].append("❌ No COGS profile")
+            # Match to actual sales
+            if not sales_records_df.empty:
+                sold = sales_records_df[sales_records_df['order_description'] == prod_name]
+                if not sold.empty:
+                    row["Avg Sold Price"] = round(float(sold['unit_price'].mean()), 2)
+                    row["Min Sold Price"] = round(float(sold['unit_price'].min()), 2)
+                    row["Max Sold Price"] = round(float(sold['unit_price'].max()), 2)
+                    ref_cogs = row["FP COGS"] or row["COGS Profile COGS"]
+                    ref_retail = row["FP Retail"] or row["COGS Profile Price"]
+                    if ref_cogs and row["Avg Sold Price"] < ref_cogs:
+                        row["Flags"].append("🔴 Avg sold price BELOW COGS")
+                    if ref_cogs and row["Min Sold Price"] < ref_cogs:
+                        row["Flags"].append("🟠 Some sales below COGS")
+                    if ref_retail and row["Max Sold Price"] > ref_retail * 1.5:
+                        row["Flags"].append("🟡 Some sales >150% of retail")
+                else:
+                    row["Flags"].append("ℹ️ Never sold")
+            # Low margin flag
+            if row["FP Margin %"] is not None and row["FP Margin %"] < 30:
+                row["Flags"].append("🟠 Margin below 30%")
+            row["Flags"] = " | ".join(row["Flags"]) if row["Flags"] else "✅ OK"
+            price_data.append(row)
         if price_data:
             price_df = pd.DataFrame(price_data)
             # Show flagged items first
