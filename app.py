@@ -19,21 +19,20 @@ def inject_custom_css():
     st.markdown("""
         <style>
         #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {background-color: transparent !important;}
-        .stApp { background-color: #FAFAFA; font-family: 'Inter', -apple-system, sans-serif; }
-        [data-testid="stMetricValue"] { font-size: 2.2rem; font-weight: 300; color: #1E293B; letter-spacing: -0.02em; }
-        [data-testid="stMetricLabel"] { font-size: 0.85rem; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; }
-        [data-testid="metric-container"] { background-color: #FFFFFF; border: 1px solid #E2E8F0; padding: 1.5rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-        .stButton>button { border-radius: 4px; font-weight: 500; border: 1px solid #CBD5E1; background-color: #FFFFFF; color: #334155; transition: all 0.2s ease; }
-        .stButton>button:hover { border-color: #94A3B8; color: #0F172A; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .stButton>button[kind="primary"] { background-color: #0F172A; color: #FFFFFF; border: none; }
-        .stButton>button[kind="primary"]:hover { background-color: #1E293B; }
-        h1, h2, h3 { color: #0F172A; font-weight: 400; letter-spacing: -0.01em; }
+        .stApp { font-family: 'Inter', -apple-system, sans-serif; }
+        [data-testid="stMetricValue"] { font-size: 2.2rem; font-weight: 300; letter-spacing: -0.02em; }
+        [data-testid="stMetricLabel"] { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+        [data-testid="metric-container"] { padding: 1.5rem; border-radius: 8px; }
+        .stButton>button { border-radius: 4px; font-weight: 500; transition: all 0.2s ease; }
+        h1, h2, h3 { font-weight: 400; letter-spacing: -0.01em; }
         /* Custom minimal spinner */
         .stSpinner > div { display: flex; align-items: center; justify-content: center; }
-        .stSpinner > div > div { border-color: #0F172A !important; border-right-color: transparent !important; width: 20px !important; height: 20px !important; border-width: 2px !important; }
-        .stSpinner > div > span { font-size: 0.85rem !important; font-weight: 500 !important; color: #64748B !important; letter-spacing: 0.02em !important; margin-left: 8px !important; }
+        .stSpinner > div > div { width: 20px !important; height: 20px !important; border-width: 2px !important; }
+        .stSpinner > div > span { font-size: 0.85rem !important; font-weight: 500 !important; letter-spacing: 0.02em !important; margin-left: 8px !important; }
         /* Hide default "Running..." top-right badge */
         [data-testid="stStatusWidget"] { display: none !important; }
+        /* Ensure markdown text inherits theme color */
+        .stMarkdown p, .stMarkdown span, .stMarkdown li { color: inherit !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -329,7 +328,7 @@ def check_password():
         st.write("<br><br><br>", unsafe_allow_html=True)
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h1 style='text-align: center; font-weight: 300;'>Therapeutic Oils</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #64748B;'>Secure Laboratory Portal</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; opacity: 0.6;'>Secure Laboratory Portal</p>", unsafe_allow_html=True)
         username = st.text_input("Username", placeholder="Enter your name...")
         password = st.text_input("Passcode", type="password", placeholder="Enter passcode...")
         if st.button("Authenticate", use_container_width=True, type="primary"):
@@ -365,14 +364,14 @@ if check_password():
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h3 style='text-align: center; padding-bottom: 20px;'>T / O</h3>", unsafe_allow_html=True)
         st.write("##")
-        st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Business Module</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Business Module</p>", unsafe_allow_html=True)
         selected_module = st.selectbox("Module", list(MODULES.keys()), index=list(MODULES.keys()).index(st.session_state.active_module), label_visibility="collapsed")
         if selected_module != st.session_state.active_module:
             st.session_state.active_module = selected_module
             st.session_state.active_nav = MODULES[selected_module][0]
             st.rerun()
         st.write("---")
-        st.markdown("<p style='color: #64748B; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Navigation</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;'>Navigation</p>", unsafe_allow_html=True)
         nav_opts = MODULES[st.session_state.active_module]
         if st.session_state.active_nav not in nav_opts:
             for mod, navs in MODULES.items():
@@ -385,7 +384,7 @@ if check_password():
             st.rerun()
         menu = st.session_state.active_nav
         st.write("<br><br>", unsafe_allow_html=True)
-        st.markdown(f"<p style='color: #64748B; font-size: 0.8rem; text-align: center;'>Logged in as {st.session_state.get('user_name', 'User')}</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='opacity: 0.6; font-size: 0.8rem; text-align: center;'>Logged in as {st.session_state.get('user_name', 'User')}</p>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.session_state["user_role"] = None; st.session_state["user_name"] = None; st.rerun()
 
     # --- 1. SALES & REVENUE ---
@@ -393,7 +392,7 @@ if check_password():
         d = load_tables('sales_records', 'finished_goods', 'packaging', 'clients')
         sales_records_df = d['sales_records']; finished_goods = d['finished_goods']; packaging = d['packaging']; clients_df = d['clients']
         st.title("Sales & Revenue Tracker")
-        st.markdown("<p style='color: #64748B;'>Monitor order volume, track pending receivables, and manage vault stock deductions.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Monitor order volume, track pending receivables, and manage vault stock deductions.</p>", unsafe_allow_html=True)
         if not sales_records_df.empty:
             sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'], errors='coerce')
             sales_records_df['Year'] = sales_records_df['sale_date'].dt.year
@@ -650,7 +649,7 @@ if check_password():
         d = load_tables('clients', 'sales_records')
         clients_df = d['clients']; sales_records_df = d['sales_records']
         st.title("Client Database")
-        st.markdown("<p style='color: #64748B;'>Manage your client and account records. Select a client to view their order history.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Manage your client and account records. Select a client to view their order history.</p>", unsafe_allow_html=True)
         if not clients_df.empty:
             display_clients = clients_df.copy()
             display_clients.insert(0, '🔍', False)
@@ -725,7 +724,7 @@ if check_password():
         d = load_tables('consignment', 'finished_goods')
         consignment_df = d['consignment']; finished_goods = d['finished_goods']
         st.title("Consignment Agreements")
-        st.markdown("<p style='color: #64748B;'>Manage goods sitting on partner shelves. Consigned goods are deducted from your lab stock but do not count as Revenue until explicitly marked as sold here.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Manage goods sitting on partner shelves. Consigned goods are deducted from your lab stock but do not count as Revenue until explicitly marked as sold here.</p>", unsafe_allow_html=True)
         if not consignment_df.empty:
             active_cons = consignment_df[consignment_df['status'] == 'Active'].copy()
             total_active_units = active_cons['qty_consigned'].sum() - active_cons['qty_sold'].sum()
@@ -870,7 +869,7 @@ if check_password():
         d = load_tables('inventory', 'packaging', 'finished_goods', 'consignment')
         inventory = d['inventory']; packaging = d['packaging']; finished_goods = d['finished_goods']; consignment_df = d['consignment']
         st.title("Financial Overview")
-        st.markdown("<p style='color: #64748B;'>Live tracking of physical assets, inventory valuation, and retail projections.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Live tracking of physical assets, inventory valuation, and retail projections.</p>", unsafe_allow_html=True)
         st.write("##")
         rm_total = (inventory['price_per_kg'] * inventory['quantity_kg']).sum() if not inventory.empty else 0.0
         pm_total = (packaging['cost_per_unit'] * packaging['remaining_quantity']).sum() if not packaging.empty else 0.0
@@ -896,7 +895,7 @@ if check_password():
         d = load_tables('inventory', 'packaging', 'finished_goods', 'consignment', 'sales_records')
         inventory = d['inventory']; packaging = d['packaging']; finished_goods = d['finished_goods']; consignment_df = d['consignment']; sales_records_df = d['sales_records']
         st.title("Balance Sheet Generator")
-        st.markdown("<p style='color: #64748B;'>Generate a professional financial statement summarizing assets, liabilities, and owner's equity.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Generate a professional financial statement summarizing assets, liabilities, and owner's equity.</p>", unsafe_allow_html=True)
         rm_total = (inventory['price_per_kg'] * inventory['quantity_kg']).sum() if not inventory.empty else 0.0
         pm_total = (packaging['cost_per_unit'] * packaging['remaining_quantity']).sum() if not packaging.empty else 0.0
         fp_cogs_total = (finished_goods['unit_cogs'] * finished_goods['stock_quantity']).sum() if not finished_goods.empty else 0.0
@@ -943,7 +942,7 @@ if check_password():
         d = load_tables('inventory')
         inventory = d['inventory']
         st.title("Raw Material Library")
-        st.markdown("<p style='color: #64748B;'>Manage essential oils, carriers, and active ingredients. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Manage essential oils, carriers, and active ingredients. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
         if not inventory.empty:
             display_inv = inventory.copy(); display_inv['Cost/g ($)'] = (display_inv['price_per_kg'] / 1000).map('${:,.4f}'.format); display_inv.insert(0, '🔍', False) 
             with st.container(border=True):
@@ -1010,7 +1009,7 @@ if check_password():
         d = load_tables('packaging')
         packaging = d['packaging']
         st.title("Packaging Library")
-        st.markdown("<p style='color: #64748B;'>Track bottles, droppers, caps, and labels. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Track bottles, droppers, caps, and labels. Select a material to view its Lot Tracking.</p>", unsafe_allow_html=True)
         if not packaging.empty:
             display_pk = packaging.copy(); display_pk.insert(0, '🔍', False)
             with st.container(border=True):
@@ -1070,7 +1069,7 @@ if check_password():
         d = load_tables('finished_goods', 'cogs_records')
         finished_goods = d['finished_goods']; cogs_records_df = d['cogs_records']
         st.title("Finished Products")
-        st.markdown("<p style='color: #64748B;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Manage retail-ready inventory directly from your saved COGS profiles.</p>", unsafe_allow_html=True)
         if not finished_goods.empty:
             display_fp = finished_goods.copy()
             display_fp.insert(0, '🔍', False)
@@ -1131,7 +1130,7 @@ if check_password():
         d = load_tables('formulas', 'inventory')
         formulas_df = d['formulas']; inventory = d['inventory']
         st.title("📚 Formula Library")
-        st.markdown("<p style='color: #64748B;'>Inspect read-only recipes and execute live manufacturing batches.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Inspect read-only recipes and execute live manufacturing batches.</p>", unsafe_allow_html=True)
         if not formulas_df.empty:
             formulas_df['base_code'] = formulas_df['fr_code'].apply(lambda x: str(x).split('-')[0])
             summary_df = formulas_df.sort_values(by='fr_code').drop_duplicates(subset=['base_code'], keep='first').copy()
@@ -1256,11 +1255,11 @@ if check_password():
         d = load_tables('formulas', 'inventory')
         formulas_df = d['formulas']; inventory = d['inventory']
         st.title("⚙️ Formula Builder")
-        st.markdown("<p style='color: #64748B;'>Draft, calculate, and version control your recipes here.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Draft, calculate, and version control your recipes here.</p>", unsafe_allow_html=True)
         c_build, c_metrics = st.columns([3, 2])
         with c_build:
             if "edit_formula_id" in st.session_state:
-                st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>✏️ EDITING MODE: Overwriting {st.session_state.edit_fr_code}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='opacity: 0.9; font-size: 0.85rem; font-weight: 600;'>✏️ EDITING MODE: Overwriting {st.session_state.edit_fr_code}</span>", unsafe_allow_html=True)
                 if st.button("❌ Cancel Edit & Start Fresh"):
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                     for key in ["draft_name", "edit_formula_id", "edit_fr_code", "draft_procedure"]:
@@ -1269,7 +1268,7 @@ if check_password():
                 st.write("")
             elif "base_fr_code" in st.session_state:
                 base_disp = st.session_state.base_fr_code.split('-')[0]
-                st.markdown(f"<span style='color: #0F172A; font-size: 0.85rem; font-weight: 600;'>🔗 NEW EDITION MODE: Linked to Parent {base_disp}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='opacity: 0.9; font-size: 0.85rem; font-weight: 600;'>🔗 NEW EDITION MODE: Linked to Parent {base_disp}</span>", unsafe_allow_html=True)
                 if st.button("❌ Cancel Edition & Start Fresh"):
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                     for key in ["draft_name", "base_fr_code", "draft_procedure"]:
@@ -1331,7 +1330,7 @@ if check_password():
         d = load_tables('formulas', 'inventory', 'packaging', 'cogs_records')
         formulas_df = d['formulas']; inventory = d['inventory']; packaging = d['packaging']; cogs_records_df = d['cogs_records']
         st.title("Cost of Goods Sold (COGS)")
-        st.markdown("<p style='color: #64748B;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
         with st.container(border=True):
             st.markdown("#### Step 1: Physical Product Specs")
             c1, c2, c3 = st.columns(3)
@@ -1515,7 +1514,7 @@ if check_password():
         d = load_tables('inventory', 'finished_goods')
         inventory = d['inventory']; finished_goods = d['finished_goods']
         st.title("Stock Levels")
-        st.markdown("<p style='color: #64748B;'>Read-only view of current inventory.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Read-only view of current inventory.</p>", unsafe_allow_html=True)
         st.markdown("#### Raw Materials")
         if not inventory.empty:
             st.dataframe(inventory[['rm_code', 'trade_name', 'quantity_kg']].rename(columns={'rm_code': 'Code', 'trade_name': 'Material', 'quantity_kg': 'Stock (Kg)'}), use_container_width=True, hide_index=True)
@@ -1531,7 +1530,7 @@ if check_password():
     # --- 9. PRODUCTION LOGS ---
     elif menu == "Production Logs":
         st.title("Production Logs")
-        st.markdown("<p style='color: #64748B;'>GMP-compliant traceability records & Physical Batch Labels.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>GMP-compliant traceability records & Physical Batch Labels.</p>", unsafe_allow_html=True)
         logs = supabase.table('production_records').select("*").order("created_at", desc=True).execute()
         if logs.data:
             df = pd.DataFrame(logs.data)
