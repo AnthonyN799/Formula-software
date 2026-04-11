@@ -1329,13 +1329,13 @@ if check_password():
                 items_text += f"- {item['Material']} ({qty_str} {item['Unit']})\n"
 
             full_message = f"{msg_greeting}\n\n{items_text}\n{msg_closing}"
-            st.text_area("Preview", value=full_message, height=200, key="pr_preview", disabled=True)
+            editable_message = st.text_area("Edit Message", value=full_message, height=200, key="pr_preview")
 
             mc1, mc2 = st.columns(2)
-            if mc1.button("📋 Show Copyable Text", use_container_width=True, type="primary"):
-                st.code(full_message, language=None)
+             if mc1.button("📋 Show Copyable Text", use_container_width=True, type="primary"):
+                st.code(editable_message, language=None)
 
-            wa_url = f"https://wa.me/?text={full_message.replace(chr(10), '%0A').replace(' ', '%20').replace('#', '%23')}"
+            wa_url = f"https://wa.me/?text={editable_message.replace(chr(10), '%0A').replace(' ', '%20').replace('#', '%23')}"
             mc2.link_button("💬 Send via WhatsApp", wa_url, use_container_width=True)
         else:
             st.info("Tick the 🛒 checkbox next to items you need to reorder, then set the order quantity.")
