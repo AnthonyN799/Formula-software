@@ -348,7 +348,7 @@ if check_password():
     user_role = st.session_state.get("user_role", "admin")
     if user_role == "admin":
         MODULES = {
-            "📊 Finance & Sales": ["Sales & Revenue", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
+            "📊 Finance & Sales": ["Sales & Revenue", "Analytics", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
             "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
             "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"]
         }
@@ -936,6 +936,138 @@ if check_password():
                 date_str = datetime.today().strftime('%B %d, %Y')
                 pdf_bytes = generate_balance_sheet_pdf(date_str, cash, ar_total, rm_total, pm_total, total_inv_fg, fixed_assets, accounts_payable, debt, total_assets, total_liabilities, owner_equity)
                 st.download_button("📄 Download Official PDF Balance Sheet", data=pdf_bytes, file_name=f"TherapeuticOils_BalanceSheet_{datetime.today().strftime('%Y%m%d')}.pdf", mime="application/pdf", use_container_width=True)
+
+    # --- ANALYTICS DASHBOARD ---
+    elif menu == "Analytics":
+        d = load_tables('sales_records', 'cogs_records', 'finished_goods')
+        sales_records_df = d['sales_records']; cogs_records_df = d['cogs_records']; finished_goods = d['finished_goods']
+        st.title("Analytics Dashboard")
+        st.markdown("<p style='opacity: 0.6;'>Visual insights into revenue, product performance, and profitability trends.</p>", unsafe_allow_html=True)
+        if not sales_records_df.empty:
+            sales_records_df['sale_date'] = pd.to_datetime(sales_records_df['sale_date'], errors='coerce')
+            sales_records_df['Year'] = sales_records_df['sale_date'].dt.year
+            sales_records_df['Month'] = sales_records_df['sale_date'].dt.to_period('M').astype(str)
+            sales_records_df['MonthNum'] = sales_records_df['sale_date'].dt.month
+            all_skus = sorted(sales_records_df['order_description'].dropna().unique().tolist())
+            years_available = sorted(sales_records_df['Year'].dropna().unique().tolist(), reverse=True)
+
+            # --- Filters ---
+            st.write("---")
+            fc1, fc2 = st.columns(2)
+            selected_years = fc1.multiselect("Filter by Year", years_available, default=years_available[:2] if len(years_available) >= 2 else years_available)
+            selected_skus = fc2.multiselect("Filter by Product (leave empty for all)", all_skus)
+            filtered = sales_records_df[sales_records_df['Year'].isin(selected_years)].copy()
+            if selected_skus:
+                filtered = filtered[filtered['order_description'].isin(selected_skus)]
+            if filtered.empty:
+                st.warning("No data for selected filters.")
+            else:
+                # --- 1. Revenue Over Time (Monthly, by Year) ---
+                st.write("---")
+                st.markdown("#### Monthly Revenue Trend")
+                monthly = filtered.groupby(['Year', 'MonthNum']).agg(Revenue=('gross_revenue', 'sum')).reset_index()
+                monthly['Month'] = monthly['MonthNum'].apply(lambda m: datetime(2000, int(m), 1).strftime('%b'))
+                import altair as alt
+                rev_chart = alt.Chart(monthly).mark_line(point=True, strokeWidth=3).encode(
+                    x=alt.X('Month:N', sort=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], title='Month'),
+                    y=alt.Y('Revenue:Q', title='Revenue ($)'),
+                    color=alt.Color('Year:N', title='Year'),
+                    tooltip=['Year:N', 'Month:N', alt.Tooltip('Revenue:Q', format='$,.2f')]
+                ).properties(height=350)
+                st.altair_chart(rev_chart, use_container_width=True)
+
+                # --- 2. Best Sellers (Units Sold) ---
+                st.write("---")
+                col_bs1, col_bs2 = st.columns(2)
+                with col_bs1:
+                    st.markdown("#### Best Sellers by Units")
+                    units_by_sku = filtered.groupby('order_description').agg(Units=('quantity', 'sum')).sort_values('Units', ascending=False).reset_index()
+                    units_chart = alt.Chart(units_by_sku).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+                        x=alt.X('Units:Q', title='Units Sold'),
+                        y=alt.Y('order_description:N', sort='-x', title=''),
+                        tooltip=['order_description:N', 'Units:Q']
+                    ).properties(height=max(200, len(units_by_sku) * 35))
+                    st.altair_chart(units_chart, use_container_width=True)
+
+                # --- 3. Revenue by SKU ---
+                with col_bs2:
+                    st.markdown("#### Revenue by Product")
+                    rev_by_sku = filtered.groupby('order_description').agg(Revenue=('gross_revenue', 'sum')).sort_values('Revenue', ascending=False).reset_index()
+                    rev_sku_chart = alt.Chart(rev_by_sku).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+                        x=alt.X('Revenue:Q', title='Revenue ($)'),
+                        y=alt.Y('order_description:N', sort='-x', title=''),
+                        tooltip=['order_description:N', alt.Tooltip('Revenue:Q', format='$,.2f')]
+                    ).properties(height=max(200, len(rev_by_sku) * 35))
+                    st.altair_chart(rev_sku_chart, use_container_width=True)
+
+                # --- 4. Gross Margin by SKU ---
+                st.write("---")
+                st.markdown("#### Gross Margin by Product")
+                margin_data = filtered.groupby('order_description').agg(Revenue=('gross_revenue', 'sum'), Profit=('net_profit', 'sum'), COGS=('cogs', 'sum')).reset_index()
+                margin_data['Margin %'] = ((margin_data['Profit'] / margin_data['Revenue']) * 100).round(1)
+                margin_data = margin_data.sort_values('Margin %', ascending=False)
+                margin_chart = alt.Chart(margin_data).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+                    x=alt.X('Margin %:Q', title='Gross Margin (%)'),
+                    y=alt.Y('order_description:N', sort='-x', title=''),
+                    color=alt.condition(alt.datum['Margin %'] >= 50, alt.value('#10b981'), alt.value('#f59e0b')),
+                    tooltip=['order_description:N', alt.Tooltip('Margin %:Q', format='.1f'), alt.Tooltip('Revenue:Q', format='$,.2f'), alt.Tooltip('Profit:Q', format='$,.2f')]
+                ).properties(height=max(200, len(margin_data) * 35))
+                st.altair_chart(margin_chart, use_container_width=True)
+
+                # --- 5. Revenue by Channel ---
+                st.write("---")
+                col_ch1, col_ch2 = st.columns(2)
+                with col_ch1:
+                    st.markdown("#### Revenue by Channel")
+                    channel_data = filtered.groupby('channel').agg(Revenue=('gross_revenue', 'sum')).sort_values('Revenue', ascending=False).reset_index()
+                    channel_chart = alt.Chart(channel_data).mark_arc(innerRadius=50).encode(
+                        theta=alt.Theta('Revenue:Q'),
+                        color=alt.Color('channel:N', title='Channel'),
+                        tooltip=['channel:N', alt.Tooltip('Revenue:Q', format='$,.2f')]
+                    ).properties(height=300)
+                    st.altair_chart(channel_chart, use_container_width=True)
+
+                # --- 6. Top Clients ---
+                with col_ch2:
+                    st.markdown("#### Top Clients by Revenue")
+                    client_rev = filtered.groupby('account').agg(Revenue=('gross_revenue', 'sum'), Orders=('order_ref_number', 'nunique')).sort_values('Revenue', ascending=False).head(10).reset_index()
+                    st.dataframe(client_rev.rename(columns={'account': 'Client'}), use_container_width=True, hide_index=True, column_config={"Revenue": st.column_config.NumberColumn(format="$%.2f")})
+
+                # --- 7. KPI Summary Table ---
+                st.write("---")
+                st.markdown("#### Product Performance Summary")
+                perf = filtered.groupby('order_description').agg(
+                    Units=('quantity', 'sum'),
+                    Revenue=('gross_revenue', 'sum'),
+                    COGS=('cogs', 'sum'),
+                    Profit=('net_profit', 'sum'),
+                    Orders=('order_ref_number', 'nunique'),
+                    Avg_Price=('unit_price', 'mean')
+                ).reset_index()
+                perf['Margin %'] = ((perf['Profit'] / perf['Revenue']) * 100).round(1)
+                perf['Avg Price'] = perf['Avg_Price'].round(2)
+                perf = perf.sort_values('Revenue', ascending=False)
+                st.dataframe(perf[['order_description', 'Units', 'Revenue', 'COGS', 'Profit', 'Margin %', 'Orders', 'Avg Price']].rename(columns={'order_description': 'Product'}), use_container_width=True, hide_index=True, column_config={
+                    "Revenue": st.column_config.NumberColumn(format="$%.2f"),
+                    "COGS": st.column_config.NumberColumn(format="$%.2f"),
+                    "Profit": st.column_config.NumberColumn(format="$%.2f"),
+                    "Avg Price": st.column_config.NumberColumn(format="$%.2f"),
+                    "Margin %": st.column_config.NumberColumn(format="%.1f%%")
+                })
+
+                # --- 8. Year-over-Year Comparison ---
+                if len(selected_years) >= 2:
+                    st.write("---")
+                    st.markdown("#### Year-over-Year Comparison")
+                    yoy = filtered.groupby('Year').agg(Revenue=('gross_revenue', 'sum'), Profit=('net_profit', 'sum'), Units=('quantity', 'sum')).reset_index()
+                    yoy_cols = st.columns(len(yoy))
+                    for i, (_, row) in enumerate(yoy.iterrows()):
+                        with yoy_cols[i]:
+                            st.metric(f"{int(row['Year'])} Revenue", f"${row['Revenue']:,.2f}")
+                            st.metric(f"{int(row['Year'])} Profit", f"${row['Profit']:,.2f}")
+                            st.metric(f"{int(row['Year'])} Units", f"{int(row['Units']):,}")
+        else:
+            st.info("No sales data available for analytics.")
 
     # --- 4. RAW MATERIAL LIBRARY ---
     elif menu == "Raw Material Library":
