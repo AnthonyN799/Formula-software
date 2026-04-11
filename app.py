@@ -329,7 +329,7 @@ def check_password():
         st.write("<br><br><br>", unsafe_allow_html=True)
         try: st.image("logo.jpg", use_container_width=True)
         except: st.markdown("<h1 style='text-align: center; font-weight: 300;'>Therapeutic Oils</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; opacity: 0.6;'>Secure Laboratory Portal</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; opacity: 0.6;'>Secure Portal</p>", unsafe_allow_html=True)
         username = st.text_input("Username", placeholder="Enter your name...")
         password = st.text_input("Passcode", type="password", placeholder="Enter passcode...")
         if st.button("Authenticate", use_container_width=True, type="primary"):
