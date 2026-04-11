@@ -74,6 +74,7 @@ def load_tables(*names):
         'sales_records': ('sales_records', 'sale_date'),
         'consignment': ('consignment_records', 'created_at'),
         'clients': ('clients', 'client_name'),
+        'portfolios': ('portfolios', 'portfolio_name'),
     }
     with st.spinner("Loading..."):
         result = {}
@@ -351,7 +352,7 @@ if check_password():
             "📊 Finance & Sales": ["Sales & Revenue", "Analytics", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
             "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
             "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"],
-            "🛠️ Admin Tools": ["Data Cleaning"]
+            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder"]
         }
     else:
         MODULES = {
@@ -942,6 +943,7 @@ if check_password():
     elif menu == "Analytics":
         d = load_tables('sales_records', 'cogs_records', 'finished_goods')
         sales_records_df = d['sales_records']; cogs_records_df = d['cogs_records']; finished_goods = d['finished_goods']
+        portfolios_df = fetch_vault_data('portfolios', 'portfolio_name')
         st.title("Analytics Dashboard")
         st.markdown("<p style='opacity: 0.6;'>Visual insights into revenue, product performance, and profitability trends.</p>", unsafe_allow_html=True)
         if not sales_records_df.empty:
@@ -954,11 +956,21 @@ if check_password():
 
             # --- Filters ---
             st.write("---")
-            fc1, fc2 = st.columns(2)
+            fc1, fc2, fc3 = st.columns(3)
             selected_years = fc1.multiselect("Filter by Year", years_available, default=years_available[:2] if len(years_available) >= 2 else years_available)
             selected_skus = fc2.multiselect("Filter by Product (leave empty for all)", all_skus)
+            # Portfolio filter
+            portfolio_opts = ["None"]
+            if not portfolios_df.empty:
+                portfolio_opts += portfolios_df['portfolio_name'].tolist()
+            selected_portfolio = fc3.selectbox("Filter by Portfolio", portfolio_opts)
             filtered = sales_records_df[sales_records_df['Year'].isin(selected_years)].copy()
-            if selected_skus:
+            if selected_portfolio != "None" and not portfolios_df.empty:
+                pf_row = portfolios_df[portfolios_df['portfolio_name'] == selected_portfolio].iloc[0]
+                pf_products = pf_row['products'] if isinstance(pf_row['products'], list) else []
+                filtered = filtered[filtered['order_description'].isin(pf_products)]
+                st.info(f"📁 Viewing portfolio: **{selected_portfolio}** ({len(pf_products)} products)")
+            elif selected_skus:
                 filtered = filtered[filtered['order_description'].isin(selected_skus)]
             if filtered.empty:
                 st.warning("No data for selected filters.")
@@ -1802,3 +1814,73 @@ if check_password():
                             time.sleep(1.5); clear_cache(); st.rerun()
             else:
                 st.info("No client names found in the system.")
+
+    # --- PORTFOLIO BUILDER ---
+    elif menu == "Portfolio Builder":
+        d = load_tables('sales_records', 'finished_goods', 'cogs_records', 'consignment')
+        sales_records_df = d['sales_records']; finished_goods = d['finished_goods']; cogs_records_df = d['cogs_records']; consignment_df = d['consignment']
+        st.title("Portfolio Builder")
+        st.markdown("<p style='opacity: 0.6;'>Group related products into portfolios to track their combined performance in Analytics.</p>", unsafe_allow_html=True)
+
+        # Load portfolios from session or supabase
+        portfolios_df = fetch_vault_data('portfolios', 'portfolio_name')
+
+        # --- Create New Portfolio ---
+        with st.expander("➕ Create New Portfolio"):
+            all_product_names = set()
+            if not sales_records_df.empty:
+                all_product_names.update(sales_records_df['order_description'].dropna().unique())
+            if not finished_goods.empty:
+                all_product_names.update(finished_goods['product_name'].dropna().unique())
+            if not cogs_records_df.empty:
+                all_product_names.update(cogs_records_df['product_name'].dropna().unique())
+            all_product_names = sorted(all_product_names)
+            if all_product_names:
+                with st.form("create_portfolio"):
+                    pf_name = st.text_input("Portfolio Name", placeholder="e.g., Massage Candle Line, Actiflam Family")
+                    pf_products = st.multiselect("Select products in this portfolio:", all_product_names)
+                    pf_desc = st.text_input("Description (optional)", placeholder="e.g., All candle SKUs across fragrances")
+                    if st.form_submit_button("Create Portfolio", type="primary"):
+                        if not pf_name.strip():
+                            st.error("Please enter a portfolio name.")
+                        elif len(pf_products) < 2:
+                            st.error("Select at least 2 products to group.")
+                        else:
+                            supabase.table('portfolios').insert({"portfolio_name": pf_name.strip(), "products": pf_products, "description": pf_desc}).execute()
+                            st.success(f"Portfolio '{pf_name}' created with {len(pf_products)} products!")
+                            time.sleep(1); clear_cache(); st.rerun()
+
+        # --- View Existing Portfolios ---
+        st.write("---")
+        st.markdown("#### Saved Portfolios")
+        if not portfolios_df.empty:
+            for idx, pf in portfolios_df.iterrows():
+                products_list = pf['products'] if isinstance(pf['products'], list) else []
+                with st.container(border=True):
+                    pc1, pc2 = st.columns([3, 1])
+                    pc1.markdown(f"**{pf['portfolio_name']}**")
+                    if pf.get('description'):
+                        pc1.write(f"*{pf['description']}*")
+                    pc1.write(f"Products: {', '.join(products_list)}")
+                    # Performance preview
+                    if not sales_records_df.empty and products_list:
+                        pf_sales = sales_records_df[sales_records_df['order_description'].isin(products_list)]
+                        if not pf_sales.empty:
+                            pf_rev = pf_sales['gross_revenue'].sum()
+                            pf_units = pf_sales['quantity'].sum()
+                            pf_profit = pf_sales['net_profit'].sum()
+                            pc2.metric("Revenue", f"${pf_rev:,.2f}")
+                            pc1.write(f"📊 {int(pf_units)} units sold | ${pf_profit:,.2f} profit")
+                    # Edit / Delete
+                    with st.expander("Manage"):
+                        edit_products = st.multiselect(f"Edit products in '{pf['portfolio_name']}':", all_product_names, default=products_list, key=f"edit_pf_{pf['id']}")
+                        ec1, ec2 = st.columns(2)
+                        if ec1.button("Update Products", key=f"upd_pf_{pf['id']}"):
+                            supabase.table('portfolios').update({"products": edit_products}).eq('id', int(pf['id'])).execute()
+                            st.success("Portfolio updated!")
+                            clear_cache(); st.rerun()
+                        if ec2.button("Delete Portfolio", key=f"del_pf_{pf['id']}"):
+                            supabase.table('portfolios').delete().eq('id', int(pf['id'])).execute()
+                            clear_cache(); st.rerun()
+        else:
+            st.info("No portfolios created yet. Use the form above to group related products.")
