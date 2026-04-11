@@ -401,7 +401,7 @@ if check_password():
             years_available = sorted(sales_records_df['Year'].unique().tolist(), reverse=True)
             c_year, c_target = st.columns([1, 3])
             selected_year = c_year.selectbox("Fiscal Year", years_available)
-            annual_target = c_target.number_input("Annual Revenue Target ($)", value=50000, step=5000)
+            annual_target = c_target.number_input("Annual Revenue Target ($)", value=5000, step=5000)
             yr_df = sales_records_df[sales_records_df['Year'] == selected_year]
             yr_rev = yr_df['gross_revenue'].sum()
             yr_profit = yr_df['net_profit'].sum()
