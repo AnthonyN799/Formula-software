@@ -1277,27 +1277,24 @@ if check_password():
         st.title("Purchase Requisition")
         st.markdown("<p style='opacity: 0.6;'>Tick items you need to reorder, set quantities, and generate a supplier message.</p>", unsafe_allow_html=True)
 
-        tab_rm, tab_pm = st.tabs(["🧪 Raw Materials", "📦 Packaging Materials"])
+        st.markdown("#### 🧪 Raw Materials — tick items to add")
+        if not inventory.empty:
+            rm_df = inventory[['rm_code', 'trade_name', 'quantity_kg', 'price_per_kg']].copy()
+            rm_df.insert(0, '🛒', False)
+            rm_df['Order Qty (Kg)'] = 1.0
+            edited_rm = st.data_editor(rm_df, use_container_width=True, hide_index=True, disabled=['rm_code', 'trade_name', 'quantity_kg', 'price_per_kg'], key="pr_rm_editor", column_config={"rm_code": "Code", "trade_name": "Material", "quantity_kg": "Stock (Kg)", "price_per_kg": st.column_config.NumberColumn("Price/Kg", format="$%.2f"), "Order Qty (Kg)": st.column_config.NumberColumn("Order Qty (Kg)", min_value=0.1, step=0.5)})
+        else:
+            edited_rm = pd.DataFrame()
 
-        with tab_rm:
-            st.markdown("#### Raw Materials — tick items to add to requisition")
-            if not inventory.empty:
-                rm_df = inventory[['rm_code', 'trade_name', 'quantity_kg', 'price_per_kg']].copy()
-                rm_df.insert(0, '🛒', False)
-                rm_df['Order Qty (Kg)'] = 1.0
-                edited_rm = st.data_editor(rm_df, use_container_width=True, hide_index=True, disabled=['rm_code', 'trade_name', 'quantity_kg', 'price_per_kg'], column_config={"rm_code": "Code", "trade_name": "Material", "quantity_kg": "Stock (Kg)", "price_per_kg": st.column_config.NumberColumn("Price/Kg", format="$%.2f"), "Order Qty (Kg)": st.column_config.NumberColumn("Order Qty (Kg)", min_value=0.1, step=0.5)})
-            else:
-                edited_rm = pd.DataFrame()
-
-        with tab_pm:
-            st.markdown("#### Packaging — tick items to add to requisition")
-            if not packaging.empty:
-                pm_df = packaging[['pm_code', 'material_name', 'supplier', 'remaining_quantity', 'cost_per_unit']].copy()
-                pm_df.insert(0, '🛒', False)
-                pm_df['Order Qty'] = 10
-                edited_pm = st.data_editor(pm_df, use_container_width=True, hide_index=True, disabled=['pm_code', 'material_name', 'supplier', 'remaining_quantity', 'cost_per_unit'], column_config={"pm_code": "Code", "material_name": "Material", "supplier": "Supplier", "remaining_quantity": "Stock", "cost_per_unit": st.column_config.NumberColumn("Cost/Unit", format="$%.2f"), "Order Qty": st.column_config.NumberColumn("Order Qty", min_value=1, step=5)})
-            else:
-                edited_pm = pd.DataFrame()
+        st.write("---")
+        st.markdown("#### 📦 Packaging — tick items to add")
+        if not packaging.empty:
+            pm_df = packaging[['pm_code', 'material_name', 'supplier', 'remaining_quantity', 'cost_per_unit']].copy()
+            pm_df.insert(0, '🛒', False)
+            pm_df['Order Qty'] = 10
+            edited_pm = st.data_editor(pm_df, use_container_width=True, hide_index=True, disabled=['pm_code', 'material_name', 'supplier', 'remaining_quantity', 'cost_per_unit'], key="pr_pm_editor", column_config={"pm_code": "Code", "material_name": "Material", "supplier": "Supplier", "remaining_quantity": "Stock", "cost_per_unit": st.column_config.NumberColumn("Cost/Unit", format="$%.2f"), "Order Qty": st.column_config.NumberColumn("Order Qty", min_value=1, step=5)})
+        else:
+            edited_pm = pd.DataFrame()
 
         # --- Build requisition from ticked items ---
         st.write("---")
