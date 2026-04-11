@@ -1755,6 +1755,14 @@ if check_password():
                                 for _, row in matches.iterrows():
                                     supabase.table('cogs_records').update({"product_name": final_name}).eq('id', int(row['id'])).execute()
                                     changes += 1
+                            pf_df = fetch_vault_data('portfolios', 'portfolio_name')
+                            if not pf_df.empty:
+                                for _, pf_row in pf_df.iterrows():
+                                    pf_prods = pf_row['products'] if isinstance(pf_row['products'], list) else []
+                                    if old_name in pf_prods:
+                                        updated_prods = [final_name if p == old_name else p for p in pf_prods]
+                                        supabase.table('portfolios').update({"products": updated_prods}).eq('id', int(pf_row['id'])).execute()
+                                        changes += 1
                             st.success(f"Renamed '{old_name}' → '{final_name}' across {changes} records.")
                             time.sleep(1.5); clear_cache(); st.rerun()
             else:
@@ -1873,7 +1881,10 @@ if check_password():
                             pc1.write(f"📊 {int(pf_units)} units sold | ${pf_profit:,.2f} profit")
                     # Edit / Delete
                     with st.expander("Manage"):
-                        edit_products = st.multiselect(f"Edit products in '{pf['portfolio_name']}':", all_product_names, default=products_list, key=f"edit_pf_{pf['id']}")
+                        valid_defaults = [p for p in products_list if p in all_product_names]
+                        if len(valid_defaults) < len(products_list):
+                            st.warning(f"⚠️ {len(products_list) - len(valid_defaults)} product(s) in this portfolio no longer exist. They were likely renamed in Data Cleaning.")
+                        edit_products = st.multiselect(f"Edit products in '{pf['portfolio_name']}':", all_product_names, default=valid_defaults, key=f"edit_pf_{pf['id']}")
                         ec1, ec2 = st.columns(2)
                         if ec1.button("Update Products", key=f"upd_pf_{pf['id']}"):
                             supabase.table('portfolios').update({"products": edit_products}).eq('id', int(pf['id'])).execute()
