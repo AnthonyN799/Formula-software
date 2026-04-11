@@ -350,7 +350,8 @@ if check_password():
         MODULES = {
             "📊 Finance & Sales": ["Sales & Revenue", "Analytics", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
             "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products"],
-            "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"]
+            "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"],
+            "🛠️ Admin Tools": ["Data Cleaning"]
         }
     else:
         MODULES = {
@@ -1683,3 +1684,121 @@ if check_password():
                     st.download_button(label="📄 Download GMP Batch Label Sheet (PDF)", data=pdf_bytes, file_name=f"Labels_{s_log['batch_number']}.pdf", mime="application/pdf", use_container_width=True, type="primary")
         else: 
             st.info("No records found in the vault.")
+
+    # --- DATA CLEANING ---
+    elif menu == "Data Cleaning":
+        d = load_tables('sales_records', 'finished_goods', 'consignment', 'cogs_records', 'clients')
+        sales_records_df = d['sales_records']; finished_goods = d['finished_goods']; consignment_df = d['consignment']; cogs_records_df = d['cogs_records']; clients_df = d['clients']
+        st.title("Data Cleaning & Consolidation")
+        st.markdown("<p style='opacity: 0.6;'>Merge duplicate product names or client names across all tables. Changes are permanent and affect Sales, COGS, Finished Products, Consignment, and Client records.</p>", unsafe_allow_html=True)
+
+        tab1, tab2 = st.tabs(["🏷️ Product Name Consolidation", "👤 Client Name Consolidation"])
+
+        with tab1:
+            st.markdown("#### Consolidate Product Names")
+            st.info("💡 This will rename a product across ALL tables: Sales Records, Finished Products, Consignment, and COGS Profiles.")
+            all_product_names = set()
+            if not sales_records_df.empty:
+                all_product_names.update(sales_records_df['order_description'].dropna().unique())
+            if not finished_goods.empty:
+                all_product_names.update(finished_goods['product_name'].dropna().unique())
+            if not consignment_df.empty:
+                all_product_names.update(consignment_df['product_name'].dropna().unique())
+            if not cogs_records_df.empty:
+                all_product_names.update(cogs_records_df['product_name'].dropna().unique())
+            all_product_names = sorted(all_product_names)
+            if all_product_names:
+                st.markdown("**All product names found across your system:**")
+                st.dataframe(pd.DataFrame({"Product Name": all_product_names, "#": range(1, len(all_product_names) + 1)})[['#', 'Product Name']], use_container_width=True, hide_index=True)
+                st.write("---")
+                with st.form("merge_products"):
+                    st.markdown("**Merge product names**")
+                    mp1, mp2 = st.columns(2)
+                    old_name = mp1.selectbox("Rename this (old name):", all_product_names, key="old_prod")
+                    new_name = mp2.selectbox("To this (correct name):", all_product_names, key="new_prod")
+                    custom_name = st.text_input("Or type a completely new name (overrides selection above):", key="custom_prod")
+                    if st.form_submit_button("Apply Rename Across All Tables", type="primary"):
+                        final_name = custom_name.strip() if custom_name.strip() else new_name
+                        if old_name == final_name:
+                            st.error("Old and new names are the same.")
+                        else:
+                            changes = 0
+                            if not sales_records_df.empty:
+                                matches = sales_records_df[sales_records_df['order_description'] == old_name]
+                                for _, row in matches.iterrows():
+                                    supabase.table('sales_records').update({"order_description": final_name}).eq('id', int(row['id'])).execute()
+                                    changes += 1
+                            if not finished_goods.empty:
+                                matches = finished_goods[finished_goods['product_name'] == old_name]
+                                for _, row in matches.iterrows():
+                                    supabase.table('finished_products').update({"product_name": final_name}).eq('id', int(row['id'])).execute()
+                                    changes += 1
+                            if not consignment_df.empty:
+                                matches = consignment_df[consignment_df['product_name'] == old_name]
+                                for _, row in matches.iterrows():
+                                    supabase.table('consignment_records').update({"product_name": final_name}).eq('id', int(row['id'])).execute()
+                                    changes += 1
+                            if not cogs_records_df.empty:
+                                matches = cogs_records_df[cogs_records_df['product_name'] == old_name]
+                                for _, row in matches.iterrows():
+                                    supabase.table('cogs_records').update({"product_name": final_name}).eq('id', int(row['id'])).execute()
+                                    changes += 1
+                            st.success(f"Renamed '{old_name}' → '{final_name}' across {changes} records.")
+                            time.sleep(1.5); clear_cache(); st.rerun()
+            else:
+                st.info("No product names found in the system.")
+
+        with tab2:
+            st.markdown("#### Consolidate Client / Account Names")
+            st.info("💡 This will rename a client across Sales Records, Client Database, and Consignment partner names.")
+            all_client_names = set()
+            if not sales_records_df.empty:
+                all_client_names.update(sales_records_df['account'].dropna().unique())
+            if not clients_df.empty:
+                all_client_names.update(clients_df['client_name'].dropna().unique())
+            if not consignment_df.empty:
+                all_client_names.update(consignment_df['partner_name'].dropna().unique())
+            all_client_names = sorted(all_client_names)
+            if all_client_names:
+                st.markdown("**All client/partner names found across your system:**")
+                st.dataframe(pd.DataFrame({"Client Name": all_client_names, "#": range(1, len(all_client_names) + 1)})[['#', 'Client Name']], use_container_width=True, hide_index=True)
+                st.write("---")
+                with st.form("merge_clients"):
+                    st.markdown("**Merge client names**")
+                    mc1, mc2 = st.columns(2)
+                    old_client = mc1.selectbox("Rename this (old name):", all_client_names, key="old_client")
+                    new_client = mc2.selectbox("To this (correct name):", all_client_names, key="new_client")
+                    custom_client = st.text_input("Or type a completely new name (overrides selection above):", key="custom_client")
+                    if st.form_submit_button("Apply Rename Across All Tables", type="primary"):
+                        final_client = custom_client.strip() if custom_client.strip() else new_client
+                        if old_client == final_client:
+                            st.error("Old and new names are the same.")
+                        else:
+                            changes = 0
+                            if not sales_records_df.empty:
+                                matches = sales_records_df[sales_records_df['account'] == old_client]
+                                for _, row in matches.iterrows():
+                                    supabase.table('sales_records').update({"account": final_client}).eq('id', int(row['id'])).execute()
+                                    changes += 1
+                            if not clients_df.empty:
+                                matches = clients_df[clients_df['client_name'] == old_client]
+                                for _, row in matches.iterrows():
+                                    supabase.table('clients').update({"client_name": final_client}).eq('id', int(row['id'])).execute()
+                                    changes += 1
+                            if not consignment_df.empty:
+                                matches = consignment_df[consignment_df['partner_name'] == old_client]
+                                for _, row in matches.iterrows():
+                                    supabase.table('consignment_records').update({"partner_name": final_client}).eq('id', int(row['id'])).execute()
+                                    changes += 1
+                            # Delete duplicate client records with old name
+                            if not clients_df.empty:
+                                dupes = clients_df[clients_df['client_name'] == old_client]
+                                existing_new = clients_df[clients_df['client_name'] == final_client]
+                                if not existing_new.empty and not dupes.empty:
+                                    for _, drow in dupes.iterrows():
+                                        supabase.table('clients').delete().eq('id', int(drow['id'])).execute()
+                                        changes += 1
+                            st.success(f"Renamed '{old_client}' → '{final_client}' across {changes} records.")
+                            time.sleep(1.5); clear_cache(); st.rerun()
+            else:
+                st.info("No client names found in the system.")
