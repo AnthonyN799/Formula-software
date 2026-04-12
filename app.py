@@ -1302,8 +1302,26 @@ if check_password():
             if not selected.empty:
                 st.markdown(f"#### 📋 Selected Items ({len(selected)})")
                 st.dataframe(selected[['trade_name', 'quantity_kg', 'Order Qty (Kg)']].rename(columns={'trade_name': 'Material', 'quantity_kg': 'Current Stock', 'Order Qty (Kg)': 'Order Qty'}), use_container_width=True, hide_index=True)
+
+                if st.button("✉️ Generate Supplier Message", type="primary"):
+                    items_text = ""
+                    for _, row in selected.iterrows():
+                        items_text += f"- {row['trade_name']} ({row['Order Qty (Kg)']:.1f} Kg)\n"
+                    msg = f"Hi, I kindly need the below items:\n\n{items_text}\nPlease confirm availability and lead time. Thank you."
+                    st.session_state.pr_generated_msg = msg
+
+                if "pr_generated_msg" in st.session_state:
+                    st.write("---")
+                    editable_message = st.text_area("Edit Message", value=st.session_state.pr_generated_msg, height=200, key="pr_editable")
+                    mc1, mc2 = st.columns(2)
+                    if mc1.button("📋 Show Copyable Text", use_container_width=True):
+                        st.code(editable_message, language=None)
+                    wa_url = f"https://wa.me/?text={editable_message.replace(chr(10), '%0A').replace(' ', '%20').replace('#', '%23')}"
+                    mc2.link_button("💬 Send via WhatsApp", wa_url, use_container_width=True)
             else:
                 st.info("Tick the checkbox next to items you want to order.")
+                if "pr_generated_msg" in st.session_state:
+                    del st.session_state.pr_generated_msg
 
     # --- 7. FORMULA LIBRARY ---
     elif menu == "Formula Library":
