@@ -1287,7 +1287,7 @@ if check_password():
                 use_container_width=True,
                 hide_index=True,
                 disabled=['rm_code', 'trade_name', 'quantity_kg'],
-                key="pr_table",
+                key=f"pr_table_{st.session_state.get('pr_table_version', 0)}",
                 column_config={
                     "rm_code": "Code",
                     "trade_name": "Material",
@@ -1320,8 +1320,9 @@ if check_password():
                     mc2.link_button("💬 Send via WhatsApp", wa_url, use_container_width=True)
                 st.write("---")
                 if st.button("🗑️ Clear All Selections"):
+                    st.session_state.pr_table_version = st.session_state.get("pr_table_version", 0) + 1
                     for key in list(st.session_state.keys()):
-                        if key.startswith("pr_"):
+                        if key.startswith("pr_") and key != "pr_table_version":
                             del st.session_state[key]
                     st.rerun()
             else:
