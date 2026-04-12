@@ -1272,76 +1272,38 @@ if check_password():
 
     # --- PURCHASE REQUISITION ---
     elif menu == "Purchase Requisition":
-        d = load_tables('inventory', 'packaging')
-        inventory = d['inventory']; packaging = d['packaging']
+        d = load_tables('inventory')
+        inventory = d['inventory']
         st.title("Purchase Requisition")
-        st.markdown("<p style='opacity: 0.6;'>Select items to reorder, set quantities, and generate a supplier message.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Tick items to build your procurement list.</p>", unsafe_allow_html=True)
 
-        browse_type = st.radio("Browse:", ["🧪 Raw Materials", "📦 Packaging Materials"], horizontal=True, key="pr_browse")
+        if not inventory.empty:
+            rm_df = inventory[['rm_code', 'trade_name', 'quantity_kg']].copy()
+            rm_df.insert(0, 'Select', False)
+            rm_df['Order Qty (Kg)'] = 1.0
 
-        if browse_type == "🧪 Raw Materials":
-            if not inventory.empty:
-                st.dataframe(inventory[['rm_code', 'trade_name', 'quantity_kg', 'price_per_kg']].rename(columns={'rm_code': 'Code', 'trade_name': 'Material', 'quantity_kg': 'Stock (Kg)', 'price_per_kg': 'Price/Kg'}), use_container_width=True, hide_index=True, column_config={"Price/Kg": st.column_config.NumberColumn(format="$%.2f")})
-                st.write("---")
-                rm_opts = inventory['trade_name'].tolist()
-                selected_rms = st.multiselect("Select materials to order:", rm_opts, key="pr_selected_rms")
-                if selected_rms:
-                    st.markdown("**Set quantities:**")
-                    for mat in selected_rms:
-                        rm_row = inventory[inventory['trade_name'] == mat].iloc[0]
-                        st.number_input(f"{mat} (current: {rm_row['quantity_kg']} Kg)", min_value=0.1, value=1.0, step=0.5, key=f"pr_qty_rm_{mat}")
+            result = st.data_editor(
+                rm_df,
+                use_container_width=True,
+                hide_index=True,
+                disabled=['rm_code', 'trade_name', 'quantity_kg'],
+                key="pr_table",
+                column_config={
+                    "rm_code": "Code",
+                    "trade_name": "Material",
+                    "quantity_kg": "Current Stock (Kg)",
+                    "Order Qty (Kg)": st.column_config.NumberColumn("Order Qty (Kg)", min_value=0.1, step=0.5)
+                }
+            )
 
-        elif browse_type == "📦 Packaging Materials":
-            if not packaging.empty:
-                st.dataframe(packaging[['pm_code', 'material_name', 'supplier', 'remaining_quantity', 'cost_per_unit']].rename(columns={'pm_code': 'Code', 'material_name': 'Material', 'supplier': 'Supplier', 'remaining_quantity': 'Stock', 'cost_per_unit': 'Cost/Unit'}), use_container_width=True, hide_index=True, column_config={"Cost/Unit": st.column_config.NumberColumn(format="$%.2f")})
-                st.write("---")
-                pm_opts = packaging['material_name'].tolist()
-                selected_pms = st.multiselect("Select materials to order:", pm_opts, key="pr_selected_pms")
-                if selected_pms:
-                    st.markdown("**Set quantities:**")
-                    for mat in selected_pms:
-                        pm_row = packaging[packaging['material_name'] == mat].iloc[0]
-                        st.number_input(f"{mat} (current: {pm_row['remaining_quantity']} units)", min_value=1, value=10, step=5, key=f"pr_qty_pm_{mat}")
-
-        # --- Build combined list from session state (persists across tab switches) ---
-        req_items = []
-        for rm_name in st.session_state.get("pr_selected_rms", []):
-            qty = st.session_state.get(f"pr_qty_rm_{rm_name}", 1.0)
-            rm_match = inventory[inventory['trade_name'] == rm_name] if not inventory.empty else pd.DataFrame()
-            stock = f"{rm_match.iloc[0]['quantity_kg']} Kg" if not rm_match.empty else "?"
-            req_items.append({"Material": rm_name, "Order Qty": qty, "Unit": "Kg", "Current Stock": stock})
-        for pm_name in st.session_state.get("pr_selected_pms", []):
-            qty = st.session_state.get(f"pr_qty_pm_{pm_name}", 10)
-            pm_match = packaging[packaging['material_name'] == pm_name] if not packaging.empty else pd.DataFrame()
-            stock = f"{pm_match.iloc[0]['remaining_quantity']} Units" if not pm_match.empty else "?"
-            req_items.append({"Material": pm_name, "Order Qty": qty, "Unit": "Units", "Current Stock": stock})
-
-        st.write("---")
-        st.markdown(f"#### 📋 Procurement List ({len(req_items)} items)")
-        if req_items:
-            st.dataframe(pd.DataFrame(req_items), use_container_width=True, hide_index=True)
+            selected = result[result['Select'] == True]
 
             st.write("---")
-            st.markdown("#### ✉️ Generate Supplier Message")
-            msg_greeting = st.text_input("Greeting", value="Hi, I kindly need the below items:", key="pr_greeting")
-            msg_closing = st.text_input("Closing", value="Please confirm availability and lead time. Thank you.", key="pr_closing")
-
-            items_text = ""
-            for item in req_items:
-                qty_str = f"{item['Order Qty']:.1f}" if item['Unit'] == "Kg" else str(int(item['Order Qty']))
-                items_text += f"- {item['Material']} ({qty_str} {item['Unit']})\n"
-
-            full_message = f"{msg_greeting}\n\n{items_text}\n{msg_closing}"
-            editable_message = st.text_area("Edit Message", value=full_message, height=200, key="pr_preview")
-
-            mc1, mc2 = st.columns(2)
-            if mc1.button("📋 Show Copyable Text", use_container_width=True, type="primary"):
-                st.code(editable_message, language=None)
-
-            wa_url = f"https://wa.me/?text={editable_message.replace(chr(10), '%0A').replace(' ', '%20').replace('#', '%23')}"
-            mc2.link_button("💬 Send via WhatsApp", wa_url, use_container_width=True)
-        else:
-            st.info("Select items from the table above to build your procurement list.")
+            if not selected.empty:
+                st.markdown(f"#### 📋 Selected Items ({len(selected)})")
+                st.dataframe(selected[['trade_name', 'quantity_kg', 'Order Qty (Kg)']].rename(columns={'trade_name': 'Material', 'quantity_kg': 'Current Stock', 'Order Qty (Kg)': 'Order Qty'}), use_container_width=True, hide_index=True)
+            else:
+                st.info("Tick the checkbox next to items you want to order.")
 
     # --- 7. FORMULA LIBRARY ---
     elif menu == "Formula Library":
