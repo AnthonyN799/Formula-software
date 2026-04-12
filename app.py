@@ -1318,6 +1318,12 @@ if check_password():
                         st.code(editable_message, language=None)
                     wa_url = f"https://wa.me/?text={editable_message.replace(chr(10), '%0A').replace(' ', '%20').replace('#', '%23')}"
                     mc2.link_button("💬 Send via WhatsApp", wa_url, use_container_width=True)
+                st.write("---")
+                if st.button("🗑️ Clear All Selections"):
+                    for key in list(st.session_state.keys()):
+                        if key.startswith("pr_"):
+                            del st.session_state[key]
+                    st.rerun()
             else:
                 st.info("Tick the checkbox next to items you want to order.")
                 if "pr_generated_msg" in st.session_state:
