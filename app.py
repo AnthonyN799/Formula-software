@@ -1155,21 +1155,28 @@ if check_password():
                     with st.form(f"lots_form_{mat['id']}"):
                         st.info("💡 Each lot tracks its own purchase price. Average and Last costs are auto-calculated above.")
                         ed_lots = st.data_editor(lots_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Current": st.column_config.CheckboxColumn("Current Lot", default=False), "Mfg Date": st.column_config.TextColumn("Mfg Date (YYYY-MM-DD)"), "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"), "Exp Date": st.column_config.TextColumn("Exp Date (YYYY-MM-DD)"), "Qty (Kg)": st.column_config.NumberColumn("Qty (Kg)", format="%.3f"), "Price/Kg": st.column_config.NumberColumn("Price/Kg ($)", format="$%.2f", min_value=0.0)})
-                    if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
+                        if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
                             current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
                             if current_count > 1: st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
                             else:
-                                new_lots_json = ed_lots.to_dict(orient='records')
-                                new_total_kg = ed_lots['Qty (Kg)'].sum() if 'Qty (Kg)' in ed_lots.columns else 0.0
-                                # Update price_per_kg in inventory to latest lot's price (Last Cost)
+                                new_lots_json = []
+                                for _, lrow in ed_lots.iterrows():
+                                    clean_lot = {}
+                                    for k, v in lrow.items():
+                                        if pd.isna(v): clean_lot[k] = None
+                                        elif isinstance(v, bool): clean_lot[k] = bool(v)
+                                        elif hasattr(v, 'item'): clean_lot[k] = v.item()
+                                        else: clean_lot[k] = v
+                                    new_lots_json.append(clean_lot)
+                                new_total_kg = float(ed_lots['Qty (Kg)'].sum()) if 'Qty (Kg)' in ed_lots.columns else 0.0
                                 new_avg = 0.0
                                 new_last = float(mat['price_per_kg'])
                                 if new_total_kg > 0:
-                                    total_val = sum(float(l.get('Qty (Kg)', 0)) * float(l.get('Price/Kg', 0)) for l in new_lots_json)
-                                    new_avg = total_val / float(new_total_kg)
+                                    total_val = sum(float(l.get('Qty (Kg)', 0) or 0) * float(l.get('Price/Kg', 0) or 0) for l in new_lots_json)
+                                    new_avg = total_val / new_total_kg
                                     sorted_new = sorted(new_lots_json, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
-                                    if sorted_new: new_last = float(sorted_new[0].get('Price/Kg', mat['price_per_kg']))
-                                supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": float(new_total_kg), "price_per_kg": float(new_last)}).eq('id', int(mat['id'])).execute()
+                                    if sorted_new: new_last = float(sorted_new[0].get('Price/Kg', mat['price_per_kg']) or mat['price_per_kg'])
+                                supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": new_total_kg, "price_per_kg": new_last}).eq('id', int(mat['id'])).execute()
                                 st.success(f"Saved! Avg: ${new_avg:.2f}/Kg | Last: ${new_last:.2f}/Kg")
                                 time.sleep(1.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
@@ -1226,7 +1233,7 @@ if check_password():
                     with st.form(f"pk_lots_form_{p_mat['id']}"):
                         st.info("💡 Edit quantities, add new lots, and mark exactly ONE lot as 'Current Lot'. Total Stock will auto-update.")
                         ed_lots = st.data_editor(lots_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Current": st.column_config.CheckboxColumn("Current Lot", default=False), "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"), "Qty (Units)": st.column_config.NumberColumn("Qty (Units)", step=1)})
-                       if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
+                        if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
                             current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
                             if current_count > 1: st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
                             else:
@@ -1235,10 +1242,9 @@ if check_password():
                                     clean_lot = {}
                                     for k, v in lrow.items():
                                         if pd.isna(v): clean_lot[k] = None
-                                        elif isinstance(v, (bool,)): clean_lot[k] = bool(v)
-                                        elif isinstance(v, (int,)): clean_lot[k] = int(v)
+                                        elif isinstance(v, bool): clean_lot[k] = bool(v)
                                         elif hasattr(v, 'item'): clean_lot[k] = v.item()
-                                        else: clean_lot[k] = str(v) if not isinstance(v, (int, float, bool)) else v
+                                        else: clean_lot[k] = v
                                     new_lots_json.append(clean_lot)
                                 new_total_qty = int(ed_lots['Qty (Units)'].sum()) if 'Qty (Units)' in ed_lots.columns else 0
                                 supabase.table('packaging').update({"lots": new_lots_json, "remaining_quantity": new_total_qty}).eq('id', int(p_mat['id'])).execute()
