@@ -1155,7 +1155,7 @@ if check_password():
                     with st.form(f"lots_form_{mat['id']}"):
                         st.info("💡 Each lot tracks its own purchase price. Average and Last costs are auto-calculated above.")
                         ed_lots = st.data_editor(lots_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Current": st.column_config.CheckboxColumn("Current Lot", default=False), "Mfg Date": st.column_config.TextColumn("Mfg Date (YYYY-MM-DD)"), "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"), "Exp Date": st.column_config.TextColumn("Exp Date (YYYY-MM-DD)"), "Qty (Kg)": st.column_config.NumberColumn("Qty (Kg)", format="%.3f"), "Price/Kg": st.column_config.NumberColumn("Price/Kg ($)", format="$%.2f", min_value=0.0)})
-                        if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
+                    if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
                             current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
                             if current_count > 1: st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
                             else:
