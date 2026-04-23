@@ -1226,13 +1226,22 @@ if check_password():
                     with st.form(f"pk_lots_form_{p_mat['id']}"):
                         st.info("💡 Edit quantities, add new lots, and mark exactly ONE lot as 'Current Lot'. Total Stock will auto-update.")
                         ed_lots = st.data_editor(lots_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Current": st.column_config.CheckboxColumn("Current Lot", default=False), "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"), "Qty (Units)": st.column_config.NumberColumn("Qty (Units)", step=1)})
-                        if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
+                       if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
                             current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
                             if current_count > 1: st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
                             else:
-                                new_lots_json = ed_lots.to_dict(orient='records')
-                                new_total_qty = ed_lots['Qty (Units)'].sum() if 'Qty (Units)' in ed_lots.columns else 0
-                                supabase.table('packaging').update({"lots": new_lots_json, "remaining_quantity": int(new_total_qty)}).eq('id', int(p_mat['id'])).execute()
+                                new_lots_json = []
+                                for _, lrow in ed_lots.iterrows():
+                                    clean_lot = {}
+                                    for k, v in lrow.items():
+                                        if pd.isna(v): clean_lot[k] = None
+                                        elif isinstance(v, (bool,)): clean_lot[k] = bool(v)
+                                        elif isinstance(v, (int,)): clean_lot[k] = int(v)
+                                        elif hasattr(v, 'item'): clean_lot[k] = v.item()
+                                        else: clean_lot[k] = str(v) if not isinstance(v, (int, float, bool)) else v
+                                    new_lots_json.append(clean_lot)
+                                new_total_qty = int(ed_lots['Qty (Units)'].sum()) if 'Qty (Units)' in ed_lots.columns else 0
+                                supabase.table('packaging').update({"lots": new_lots_json, "remaining_quantity": new_total_qty}).eq('id', int(p_mat['id'])).execute()
                                 st.success("Lots updated successfully! Total Stock recalculated.")
                                 time.sleep(1.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
