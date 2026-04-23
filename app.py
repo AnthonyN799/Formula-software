@@ -484,8 +484,17 @@ if check_password():
                         new_total = max(0, new_subtotal - flat_disc)
                         st.markdown(f"**New Order Total: ${new_total:,.2f}**")
                         if st.button("💾 Apply Changes to This Order", type="primary"):
+                            num_lines = len(edited_order)
+                            flat_per_line = flat_disc / num_lines if num_lines > 0 else 0
                             for _, erow in edited_order.iterrows():
-                                update_data = {"unit_price": float(erow['Unit Price'])}
+                                line_gross = erow['Qty'] * erow['Unit Price'] * (1 - erow['Disc %'] / 100) - flat_per_line
+                                line_gross = max(0, line_gross)
+                                # Recalculate net profit using original COGS
+                                orig_row = order_items[order_items['id'] == erow['id']].iloc[0]
+                                orig_cogs = float(orig_row['cogs']) if 'cogs' in orig_row and pd.notna(orig_row['cogs']) else 0.0
+                                line_net = line_gross - orig_cogs
+                                line_gm = (line_net / line_gross) if line_gross > 0 else 0.0
+                                update_data = {"unit_price": float(erow['Unit Price']), "gross_revenue": float(line_gross), "net_profit": float(line_net), "gm": float(line_gm)}
                                 disc_parts = []
                                 if erow['Disc %'] > 0: disc_parts.append(f"{erow['Disc %']:.0f}% line discount")
                                 if flat_disc > 0: disc_parts.append(f"${flat_disc:.2f} order discount")
