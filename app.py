@@ -1112,10 +1112,32 @@ if check_password():
                 mat = inventory.loc[selected_mats.index[0]]; st.write("##")
                 with st.container(border=True):
                     st.markdown(f"#### {mat['trade_name']}")
-                    c1, c2, c3 = st.columns(3)
+                    # Calculate Avg and Last cost from lots
+                    lots_for_calc = mat.get('lots', [])
+                    if isinstance(lots_for_calc, float) or (isinstance(lots_for_calc, str) and lots_for_calc in ["", "nan", "[]"]):
+                        lots_for_calc = []
+                    avg_cost = float(mat['price_per_kg'])
+                    last_cost = float(mat['price_per_kg'])
+                    if lots_for_calc:
+                        # Backfill price to lots missing it
+                        for l in lots_for_calc:
+                            if 'Price/Kg' not in l or l.get('Price/Kg') in [None, '', 0]:
+                                l['Price/Kg'] = float(mat['price_per_kg'])
+                        total_value = sum(float(l.get('Qty (Kg)', 0)) * float(l.get('Price/Kg', mat['price_per_kg'])) for l in lots_for_calc)
+                        total_qty = sum(float(l.get('Qty (Kg)', 0)) for l in lots_for_calc)
+                        avg_cost = (total_value / total_qty) if total_qty > 0 else float(mat['price_per_kg'])
+                        # Last cost = most recent lot by Rcv Date
+                        sorted_lots = sorted(lots_for_calc, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
+                        if sorted_lots:
+                            last_cost = float(sorted_lots[0].get('Price/Kg', mat['price_per_kg']))
+                    cost_delta_pct = ((last_cost - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0
+                    c1, c2, c3, c4 = st.columns(4)
                     c1.write(f"**Code:** {mat['rm_code']}<br>**INCI:** {mat['inci_name']}", unsafe_allow_html=True)
-                    c2.write(f"**Total Stock:** {mat['quantity_kg']} Kg<br>**Price:** ${mat['price_per_kg']}/Kg", unsafe_allow_html=True)
-                    c3.write(f"**Shelf Value:** ${(mat['price_per_kg'] * mat['quantity_kg']):.2f}")
+                    c2.write(f"**Total Stock:** {mat['quantity_kg']} Kg<br>**Shelf Value:** ${(avg_cost * float(mat['quantity_kg'])):.2f}", unsafe_allow_html=True)
+                    c3.metric("Avg Cost/Kg", f"${avg_cost:.2f}")
+                    c4.metric("Last Cost/Kg", f"${last_cost:.2f}", f"{cost_delta_pct:+.1f}% vs avg" if abs(cost_delta_pct) > 0.1 else None)
+                    if abs(cost_delta_pct) > 10:
+                        st.warning(f"⚠️ Last purchase was {cost_delta_pct:+.1f}% vs average. Consider updating retail pricing or renegotiating with supplier.")
                     st.write("---")
                     st.markdown("#### 📦 Lot Tracking Ledgers")
                     lots = mat.get('lots', [])
@@ -1124,19 +1146,31 @@ if check_password():
                     if not lots:
                         today_str = datetime.today().strftime('%Y-%m-%d')
                         exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
-                        lots = [{"Lot Number": f"{mat['rm_code']}-L01", "Mfg Date": today_str, "Rcv Date": today_str, "Exp Date": exp_str, "Qty (Kg)": float(mat['quantity_kg']), "Current": True}]
+                        lots = [{"Lot Number": f"{mat['rm_code']}-L01", "Mfg Date": today_str, "Rcv Date": today_str, "Exp Date": exp_str, "Qty (Kg)": float(mat['quantity_kg']), "Price/Kg": float(mat['price_per_kg']), "Current": True}]
+                    # Backfill price field on existing lots
+                    for l in lots:
+                        if 'Price/Kg' not in l:
+                            l['Price/Kg'] = float(mat['price_per_kg'])
                     lots_df = pd.DataFrame(lots)
                     with st.form(f"lots_form_{mat['id']}"):
-                        st.info("💡 Edit quantities, add new lots, and mark exactly ONE lot as 'Current Lot'. Total Stock will auto-update.")
-                        ed_lots = st.data_editor(lots_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Current": st.column_config.CheckboxColumn("Current Lot", default=False), "Mfg Date": st.column_config.TextColumn("Mfg Date (YYYY-MM-DD)"), "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"), "Exp Date": st.column_config.TextColumn("Exp Date (YYYY-MM-DD)"), "Qty (Kg)": st.column_config.NumberColumn("Qty (Kg)", format="%.3f")})
+                        st.info("💡 Each lot tracks its own purchase price. Average and Last costs are auto-calculated above.")
+                        ed_lots = st.data_editor(lots_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Current": st.column_config.CheckboxColumn("Current Lot", default=False), "Mfg Date": st.column_config.TextColumn("Mfg Date (YYYY-MM-DD)"), "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"), "Exp Date": st.column_config.TextColumn("Exp Date (YYYY-MM-DD)"), "Qty (Kg)": st.column_config.NumberColumn("Qty (Kg)", format="%.3f"), "Price/Kg": st.column_config.NumberColumn("Price/Kg ($)", format="$%.2f", min_value=0.0)})
                         if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
                             current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
                             if current_count > 1: st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
                             else:
                                 new_lots_json = ed_lots.to_dict(orient='records')
                                 new_total_kg = ed_lots['Qty (Kg)'].sum() if 'Qty (Kg)' in ed_lots.columns else 0.0
-                                supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": float(new_total_kg)}).eq('id', int(mat['id'])).execute()
-                                st.success("Lots updated successfully! Total Stock recalculated.")
+                                # Update price_per_kg in inventory to latest lot's price (Last Cost)
+                                new_avg = 0.0
+                                new_last = float(mat['price_per_kg'])
+                                if new_total_kg > 0:
+                                    total_val = sum(float(l.get('Qty (Kg)', 0)) * float(l.get('Price/Kg', 0)) for l in new_lots_json)
+                                    new_avg = total_val / float(new_total_kg)
+                                    sorted_new = sorted(new_lots_json, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
+                                    if sorted_new: new_last = float(sorted_new[0].get('Price/Kg', mat['price_per_kg']))
+                                supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": float(new_total_kg), "price_per_kg": float(new_last)}).eq('id', int(mat['id'])).execute()
+                                st.success(f"Saved! Avg: ${new_avg:.2f}/Kg | Last: ${new_last:.2f}/Kg")
                                 time.sleep(1.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
@@ -1568,7 +1602,23 @@ if check_password():
             cost_sec = cm3.number_input("Secondary Box ($)", min_value=0.0, value=0.00, step=0.05)
             cost_ter = cm4.number_input("Tertiary/Carton ($)", min_value=0.0, value=0.00, step=0.05)
         st.write("##")
-        bulk_cost = 0.0
+        # Helper: compute avg and last cost per Kg for a raw material
+        def get_rm_costs(mat_row):
+            lots = mat_row.get('lots', [])
+            if isinstance(lots, float) or (isinstance(lots, str) and lots in ["", "nan", "[]"]):
+                lots = []
+            default_p = float(mat_row['price_per_kg'])
+            if not lots:
+                return default_p, default_p
+            total_val = sum(float(l.get('Qty (Kg)', 0)) * float(l.get('Price/Kg', default_p)) for l in lots)
+            total_q = sum(float(l.get('Qty (Kg)', 0)) for l in lots)
+            avg = (total_val / total_q) if total_q > 0 else default_p
+            sorted_l = sorted(lots, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
+            last = float(sorted_l[0].get('Price/Kg', default_p)) if sorted_l else default_p
+            return avg, last
+
+        bulk_cost_avg = 0.0
+        bulk_cost_last = 0.0
         n_only = ""
         if sel_form:
             n_only = sel_form.split("] ")[1]
@@ -1584,34 +1634,45 @@ if check_password():
                 req_g = (p/100) * fill_wt
                 m = inventory[inventory['trade_name'] == ing]
                 if not m.empty:
-                    p_kg = float(m['price_per_kg'].values[0])
-                    bulk_cost += (req_g/1000) * p_kg
+                    avg_p, last_p = get_rm_costs(m.iloc[0])
+                    bulk_cost_avg += (req_g/1000) * avg_p
+                    bulk_cost_last += (req_g/1000) * last_p
+        bulk_cost = bulk_cost_avg  # default display uses avg
         pack_cost = 0.0
         if sel_pack != "None / Custom":
             p_only = sel_pack.split("] ")[1]
             pack_cost = float(packaging[packaging['material_name'] == p_only].iloc[0]['cost_per_unit'])
-        total_cogs = bulk_cost + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
+        total_cogs_avg = bulk_cost_avg + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
+        total_cogs_last = bulk_cost_last + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
+        total_cogs = total_cogs_avg
         st.markdown("#### Cost Breakdown & Profit Margin")
         r1, r2 = st.columns([2, 1])
         with r1:
             st.dataframe(pd.DataFrame([
-                {"Component": "Formula (Bulk Oil)", "Cost per Unit": f"${bulk_cost:.4f}"},
-                {"Component": "Primary Bottle/Dropper", "Cost per Unit": f"${pack_cost:.4f}"},
-                {"Component": "Labeling", "Cost per Unit": f"${cost_lbl:.4f}"},
-                {"Component": "Secondary Packaging", "Cost per Unit": f"${cost_sec:.4f}"},
-                {"Component": "Tertiary Packaging", "Cost per Unit": f"${cost_ter:.4f}"},
-                {"Component": "Labor / Mfg Overhead", "Cost per Unit": f"${cost_mfg:.4f}"}
+                {"Component": "Formula (Bulk Oil)", "Cost @ Avg": f"${bulk_cost_avg:.4f}", "Cost @ Last": f"${bulk_cost_last:.4f}"},
+                {"Component": "Primary Bottle/Dropper", "Cost @ Avg": f"${pack_cost:.4f}", "Cost @ Last": f"${pack_cost:.4f}"},
+                {"Component": "Labeling", "Cost @ Avg": f"${cost_lbl:.4f}", "Cost @ Last": f"${cost_lbl:.4f}"},
+                {"Component": "Secondary Packaging", "Cost @ Avg": f"${cost_sec:.4f}", "Cost @ Last": f"${cost_sec:.4f}"},
+                {"Component": "Tertiary Packaging", "Cost @ Avg": f"${cost_ter:.4f}", "Cost @ Last": f"${cost_ter:.4f}"},
+                {"Component": "Labor / Mfg Overhead", "Cost @ Avg": f"${cost_mfg:.4f}", "Cost @ Last": f"${cost_mfg:.4f}"}
             ]), use_container_width=True, hide_index=True)
         with r2:
             with st.container(border=True):
-                st.metric("Total COGS per Unit", f"${total_cogs:.2f}")
-                target_retail = st.number_input("Target Retail Price ($)", min_value=0.0, value=total_cogs * 4 if total_cogs > 0 else 0.0, step=1.0)
+                ca1, ca2 = st.columns(2)
+                ca1.metric("COGS @ Avg Cost", f"${total_cogs_avg:.2f}")
+                delta_cogs = total_cogs_last - total_cogs_avg
+                ca2.metric("COGS @ Last Cost", f"${total_cogs_last:.2f}", f"{'+' if delta_cogs >= 0 else ''}${delta_cogs:.2f}" if abs(delta_cogs) > 0.001 else None)
+                target_retail = st.number_input("Target Retail Price ($)", min_value=0.0, value=total_cogs_avg * 4 if total_cogs_avg > 0 else 0.0, step=1.0)
                 margin_pct = 0.0
+                margin_pct_last = 0.0
                 if target_retail > 0:
-                    gross_profit = target_retail - total_cogs
+                    gross_profit = target_retail - total_cogs_avg
                     margin_pct = (gross_profit / target_retail) * 100
+                    margin_pct_last = ((target_retail - total_cogs_last) / target_retail) * 100
                     st.write("---")
-                    st.metric("Gross Profit", f"${gross_profit:.2f}", f"{margin_pct:.1f}% Margin")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Margin @ Avg", f"{margin_pct:.1f}%")
+                    m2.metric("Margin @ Last", f"{margin_pct_last:.1f}%")
         st.write("##")
         with st.container(border=True):
             st.markdown("#### 💾 Save COGS Configuration")
