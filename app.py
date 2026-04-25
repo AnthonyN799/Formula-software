@@ -2204,130 +2204,172 @@ if check_password():
         d = load_tables('inventory', 'packaging')
         inventory = d['inventory']; packaging = d['packaging']
         st.title("Bulk Import Materials")
-        st.markdown("<p style='opacity: 0.6;'>Upload a CSV to add multiple raw materials and packaging materials at once. New items are auto-created with generated codes.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='opacity: 0.6;'>Add multiple raw materials and packaging items at once. Type rows directly or upload a CSV.</p>", unsafe_allow_html=True)
 
-        # --- Template / instructions ---
-        with st.expander("📋 CSV Format & Template"):
-            st.markdown("""
-            **Required columns:** `type`, `trade_name`, `qty`, `price`, `date`, `lot_number`
-            **Optional columns:** `inci_name` (for RM), `supplier` (for PM)
+        st.info("💡 You only need 3 fields: **Name, Qty, Price**. The system auto-detects whether it's RM (Kg) or Packaging (units), uses today's date, and auto-generates lot numbers. New items get auto-created codes.")
 
-            - `type` must be either **RM** (raw material) or **PM** (packaging)
-            - `qty` is in Kg for RM, in units for PM
-            - `price` is the purchase price per Kg (RM) or per unit (PM)
-            - `date` is the receive date (YYYY-MM-DD)
-            - `lot_number` is the supplier lot or your internal lot code
-            """)
-            sample_csv = "type,trade_name,qty,price,date,lot_number,inci_name,supplier\nRM,Rosemary Oil,2.5,45.00,2026-04-20,LOT-2026-042,Rosmarinus Officinalis Leaf Oil,\nRM,Menthol Crystal,1.0,80.00,2026-04-20,LOT-2026-043,Menthol,\nPM,100mL Amber Bottle,200,0.35,2026-04-20,LOT-PM-112,,GlassCo Lebanon\n"
-            st.download_button("📥 Download Sample CSV", data=sample_csv, file_name="bulk_import_template.csv", mime="text/csv")
+        # Helpers
+        def find_match(candidate, existing_names, threshold=0.8):
+            if not existing_names:
+                return None, 0.0
+            from difflib import SequenceMatcher
+            best_name = None
+            best_ratio = 0.0
+            cand_lower = str(candidate).strip().lower()
+            for name in existing_names:
+                if pd.isna(name): continue
+                ratio = SequenceMatcher(None, cand_lower, str(name).strip().lower()).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_name = name
+            return (best_name, best_ratio) if best_ratio >= threshold else (None, best_ratio)
 
-        uploaded = st.file_uploader("Upload CSV file", type=['csv'], key="bulk_import_upload")
-        if uploaded is not None:
-            try:
-                import_df = pd.read_csv(uploaded)
-                required_cols = ['type', 'trade_name', 'qty', 'price', 'date', 'lot_number']
-                missing = [c for c in required_cols if c not in import_df.columns]
-                if missing:
-                    st.error(f"❌ Missing required columns: {', '.join(missing)}")
+        rm_names = inventory['trade_name'].tolist() if not inventory.empty else []
+        pm_names = packaging['material_name'].tolist() if not packaging.empty else []
+
+        tab_table, tab_csv = st.tabs(["✏️ Type/Paste Rows", "📁 Upload CSV"])
+
+        # --- TAB 1: In-app table ---
+        import_df = None
+        with tab_table:
+            st.markdown("**Type or paste rows below.** You can also copy/paste from Excel.")
+            blank_rows = pd.DataFrame([{"name": "", "qty": 0.0, "price": 0.0} for _ in range(5)])
+            edited_rows = st.data_editor(blank_rows, num_rows="dynamic", use_container_width=True, hide_index=True, key="bulk_input_table", column_config={
+                "name": st.column_config.TextColumn("Name", width="large"),
+                "qty": st.column_config.NumberColumn("Quantity", min_value=0.0, step=0.5),
+                "price": st.column_config.NumberColumn("Price ($)", format="$%.2f", min_value=0.0)
+            })
+            valid_rows = edited_rows[(edited_rows['name'].astype(str).str.strip() != "") & (edited_rows['qty'] > 0)]
+            if not valid_rows.empty and st.button("📋 Preview & Confirm", key="preview_table_btn", type="primary"):
+                import_df = valid_rows.copy()
+                st.session_state.bulk_preview_df = import_df
+
+        # --- TAB 2: CSV upload ---
+        with tab_csv:
+            st.markdown("**Upload a CSV** with just 3 columns: `name`, `qty`, `price`")
+            sample_csv = "name,qty,price\nRosemary Oil,2.5,45.00\nMenthol Crystal,1.0,80.00\n100mL Amber Bottle,200,0.35\n"
+            st.download_button("📥 Download Sample CSV", data=sample_csv, file_name="bulk_import_template.csv", mime="text/csv", key="dl_template")
+            uploaded = st.file_uploader("Upload CSV", type=['csv'], key="bulk_upload")
+            if uploaded is not None:
+                try:
+                    csv_df = pd.read_csv(uploaded)
+                    required = ['name', 'qty', 'price']
+                    missing = [c for c in required if c not in csv_df.columns]
+                    if missing:
+                        st.error(f"❌ Missing columns: {', '.join(missing)}")
+                    else:
+                        st.session_state.bulk_preview_df = csv_df[required]
+                        st.success(f"Loaded {len(csv_df)} rows. Scroll down to preview.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        # --- Preview & Confirm ---
+        if "bulk_preview_df" in st.session_state and not st.session_state.bulk_preview_df.empty:
+            st.write("---")
+            st.markdown("#### 🔍 Preview & Confirm")
+            preview_data = st.session_state.bulk_preview_df
+
+            preview_rows = []
+            for idx, row in preview_data.iterrows():
+                name = str(row['name']).strip()
+                qty = float(row['qty'])
+                price = float(row['price'])
+                # Try matching against both RM and PM
+                rm_match, rm_score = find_match(name, rm_names)
+                pm_match, pm_score = find_match(name, pm_names)
+                # Determine type and target
+                if rm_score > pm_score and rm_match:
+                    detected_type = "RM"
+                    if rm_match.strip().lower() == name.strip().lower():
+                        action = "ADD LOT (exact)"
+                    else:
+                        action = f"ADD LOT (fuzzy {int(rm_score*100)}%)"
+                    target = rm_match
+                elif pm_match:
+                    detected_type = "PM"
+                    if pm_match.strip().lower() == name.strip().lower():
+                        action = "ADD LOT (exact)"
+                    else:
+                        action = f"ADD LOT (fuzzy {int(pm_score*100)}%)"
+                    target = pm_match
                 else:
-                    st.markdown("#### Preview & Confirm")
-                    st.write(f"Found **{len(import_df)}** rows in uploaded CSV.")
+                    # No match - guess based on context (RM if has decimals, PM if whole number ≥ 10)
+                    detected_type = "RM" if qty < 10 or qty != int(qty) else "PM"
+                    action = "CREATE NEW"
+                    target = name
+                preview_rows.append({
+                    "Row": idx + 1, "Type": detected_type, "Input Name": name, "Action": action,
+                    "Will Match To": target, "Qty": qty, "Price": price
+                })
+            preview_df = pd.DataFrame(preview_rows)
+            preview_df.insert(0, 'Confirm', True)
 
-                    # Fuzzy match helper
-                    def find_match(candidate, existing_names, threshold=0.8):
-                        if not existing_names:
-                            return None, 0.0
-                        from difflib import SequenceMatcher
-                        best_name = None
-                        best_ratio = 0.0
-                        cand_lower = str(candidate).strip().lower()
-                        for name in existing_names:
-                            if pd.isna(name): continue
-                            ratio = SequenceMatcher(None, cand_lower, str(name).strip().lower()).ratio()
-                            if ratio > best_ratio:
-                                best_ratio = ratio
-                                best_name = name
-                        return (best_name, best_ratio) if best_ratio >= threshold else (None, best_ratio)
+            # Allow user to override Type for ambiguous rows
+            edited_preview = st.data_editor(preview_df, use_container_width=True, hide_index=True, disabled=['Row', 'Input Name', 'Action', 'Will Match To', 'Qty', 'Price'], column_config={
+                "Confirm": st.column_config.CheckboxColumn("Import?", default=True),
+                "Type": st.column_config.SelectboxColumn("Type", options=["RM", "PM"], required=True)
+            })
 
-                    rm_names = inventory['trade_name'].tolist() if not inventory.empty else []
-                    pm_names = packaging['material_name'].tolist() if not packaging.empty else []
+            st.warning("⚠️ Review carefully. Adjust **Type** column if the auto-detection is wrong. Uncheck rows you don't want.")
+            cb1, cb2 = st.columns(2)
+            if cb1.button("🚀 Confirm & Import", type="primary"):
+                confirmed = edited_preview[edited_preview['Confirm'] == True]
+                imports_done = 0
+                new_created = 0
+                today_str = datetime.today().strftime('%Y-%m-%d')
+                for _, prow in confirmed.iterrows():
+                    csv_row = preview_data.iloc[prow['Row'] - 1]
+                    row_type = prow['Type']
+                    target_name = prow['Will Match To']
+                    qty = float(csv_row['qty'])
+                    price = float(csv_row['price'])
+                    is_new = prow['Action'] == "CREATE NEW"
 
-                    preview_rows = []
-                    for idx, row in import_df.iterrows():
-                        row_type = str(row['type']).strip().upper()
-                        name = str(row['trade_name']).strip()
-                        existing_list = rm_names if row_type == "RM" else pm_names
-                        matched, score = find_match(name, existing_list)
-                        if matched and matched.strip().lower() == name.strip().lower():
-                            action = "ADD LOT (exact match)"
-                            target = matched
-                        elif matched:
-                            action = f"ADD LOT (fuzzy {int(score*100)}%)"
-                            target = matched
+                    if row_type == "RM":
+                        if is_new:
+                            next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
+                            rm_code = f"RM{next_id:05d}"
+                            lot_num = f"{rm_code}-L01"
+                            exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
+                            init_lot = [{"Lot Number": lot_num, "Mfg Date": today_str, "Rcv Date": today_str, "Exp Date": exp_str, "Qty (Kg)": qty, "Price/Kg": price, "Current": True}]
+                            supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": target_name, "inci_name": "", "price_per_kg": price, "quantity_kg": qty, "lots": init_lot}).execute()
+                            new_created += 1
+                            inventory = pd.concat([inventory, pd.DataFrame([{"id": next_id, "rm_code": rm_code, "trade_name": target_name, "quantity_kg": qty, "price_per_kg": price}])], ignore_index=True) if not inventory.empty else pd.DataFrame([{"id": next_id, "rm_code": rm_code, "trade_name": target_name, "quantity_kg": qty, "price_per_kg": price}])
                         else:
-                            action = "CREATE NEW"
-                            target = name
-                        preview_rows.append({
-                            "Row": idx + 1, "Type": row_type, "CSV Name": name, "Action": action,
-                            "Will Match To": target, "Qty": row['qty'], "Price": row['price'], "Date": row['date'], "Lot": row['lot_number']
-                        })
-                    preview_df = pd.DataFrame(preview_rows)
-                    preview_df.insert(0, 'Confirm', True)
-                    edited_preview = st.data_editor(preview_df, use_container_width=True, hide_index=True, disabled=['Row', 'Type', 'CSV Name', 'Action', 'Will Match To', 'Qty', 'Price', 'Date', 'Lot'], column_config={"Confirm": st.column_config.CheckboxColumn("Import?", default=True)})
-
-                    st.warning("⚠️ Review the table. Uncheck any rows you do NOT want to import. Pay attention to fuzzy matches — they may need correction.")
-                    if st.button("🚀 Confirm & Import", type="primary"):
-                        confirmed = edited_preview[edited_preview['Confirm'] == True]
-                        imports_done = 0
-                        new_created = 0
-                        for _, prow in confirmed.iterrows():
-                            csv_row = import_df.iloc[prow['Row'] - 1]
-                            row_type = prow['Type']
-                            target_name = prow['Will Match To']
-                            qty = float(csv_row['qty'])
-                            price = float(csv_row['price'])
-                            date_str = str(csv_row['date']).strip()
-                            lot_num = str(csv_row['lot_number']).strip()
-                            is_new = prow['Action'] == "CREATE NEW"
-
-                            if row_type == "RM":
-                                inci = str(csv_row.get('inci_name', '') or '').strip()
-                                if is_new:
-                                    next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
-                                    rm_code = f"RM{next_id:05d}"
-                                    exp_str = (datetime.strptime(date_str, '%Y-%m-%d') + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
-                                    init_lot = [{"Lot Number": lot_num, "Mfg Date": date_str, "Rcv Date": date_str, "Exp Date": exp_str, "Qty (Kg)": qty, "Price/Kg": price, "Current": True}]
-                                    supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": target_name, "inci_name": inci, "price_per_kg": price, "quantity_kg": qty, "lots": init_lot}).execute()
-                                    new_created += 1
-                                else:
-                                    mat = inventory[inventory['trade_name'] == target_name].iloc[0]
-                                    lots = mat.get('lots', [])
-                                    if isinstance(lots, float) or (isinstance(lots, str) and lots in ["", "nan", "[]"]): lots = []
-                                    # Uncheck current on existing lots
-                                    for l in lots: l['Current'] = False
-                                    exp_str = (datetime.strptime(date_str, '%Y-%m-%d') + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
-                                    lots.append({"Lot Number": lot_num, "Mfg Date": date_str, "Rcv Date": date_str, "Exp Date": exp_str, "Qty (Kg)": qty, "Price/Kg": price, "Current": True})
-                                    new_total = float(mat['quantity_kg']) + qty
-                                    supabase.table('inventory').update({"lots": lots, "quantity_kg": new_total, "price_per_kg": price}).eq('id', int(mat['id'])).execute()
-                                imports_done += 1
-                            elif row_type == "PM":
-                                supplier = str(csv_row.get('supplier', '') or '').strip()
-                                if is_new:
-                                    next_id = 1 if packaging.empty else int(packaging['id'].max()) + 1
-                                    pm_code = f"PM{next_id:05d}"
-                                    init_lot = [{"Lot Number": lot_num, "Rcv Date": date_str, "Qty (Units)": int(qty), "Current": True}]
-                                    supabase.table('packaging').insert({"pm_code": pm_code, "material_name": target_name, "supplier": supplier, "cost_per_unit": price, "remaining_quantity": int(qty), "lots": init_lot}).execute()
-                                    new_created += 1
-                                else:
-                                    pm = packaging[packaging['material_name'] == target_name].iloc[0]
-                                    lots = pm.get('lots', [])
-                                    if isinstance(lots, float) or (isinstance(lots, str) and lots in ["", "nan", "[]"]): lots = []
-                                    for l in lots: l['Current'] = False
-                                    lots.append({"Lot Number": lot_num, "Rcv Date": date_str, "Qty (Units)": int(qty), "Current": True})
-                                    new_total = int(pm['remaining_quantity']) + int(qty)
-                                    supabase.table('packaging').update({"lots": lots, "remaining_quantity": new_total, "cost_per_unit": price}).eq('id', int(pm['id'])).execute()
-                                imports_done += 1
-                        st.success(f"✅ Imported {imports_done} row(s). Created {new_created} new material(s).")
-                        time.sleep(2); clear_cache(); st.rerun()
-            except Exception as e:
-                st.error(f"Error reading CSV: {e}")
+                            mat = inventory[inventory['trade_name'] == target_name].iloc[0]
+                            lots = mat.get('lots', [])
+                            if isinstance(lots, float) or (isinstance(lots, str) and lots in ["", "nan", "[]"]): lots = []
+                            for l in lots: l['Current'] = False
+                            lot_count = len(lots) + 1
+                            lot_num = f"{mat['rm_code']}-L{lot_count:02d}"
+                            exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
+                            lots.append({"Lot Number": lot_num, "Mfg Date": today_str, "Rcv Date": today_str, "Exp Date": exp_str, "Qty (Kg)": qty, "Price/Kg": price, "Current": True})
+                            new_total = float(mat['quantity_kg']) + qty
+                            supabase.table('inventory').update({"lots": lots, "quantity_kg": new_total, "price_per_kg": price}).eq('id', int(mat['id'])).execute()
+                        imports_done += 1
+                    elif row_type == "PM":
+                        if is_new:
+                            next_id = 1 if packaging.empty else int(packaging['id'].max()) + 1
+                            pm_code = f"PM{next_id:05d}"
+                            lot_num = f"{pm_code}-L01"
+                            init_lot = [{"Lot Number": lot_num, "Rcv Date": today_str, "Qty (Units)": int(qty), "Current": True}]
+                            supabase.table('packaging').insert({"pm_code": pm_code, "material_name": target_name, "supplier": "", "cost_per_unit": price, "remaining_quantity": int(qty), "lots": init_lot}).execute()
+                            new_created += 1
+                            packaging = pd.concat([packaging, pd.DataFrame([{"id": next_id, "pm_code": pm_code, "material_name": target_name, "remaining_quantity": int(qty), "cost_per_unit": price}])], ignore_index=True) if not packaging.empty else pd.DataFrame([{"id": next_id, "pm_code": pm_code, "material_name": target_name, "remaining_quantity": int(qty), "cost_per_unit": price}])
+                        else:
+                            pm = packaging[packaging['material_name'] == target_name].iloc[0]
+                            lots = pm.get('lots', [])
+                            if isinstance(lots, float) or (isinstance(lots, str) and lots in ["", "nan", "[]"]): lots = []
+                            for l in lots: l['Current'] = False
+                            lot_count = len(lots) + 1
+                            lot_num = f"{pm['pm_code']}-L{lot_count:02d}"
+                            lots.append({"Lot Number": lot_num, "Rcv Date": today_str, "Qty (Units)": int(qty), "Current": True})
+                            new_total = int(pm['remaining_quantity']) + int(qty)
+                            supabase.table('packaging').update({"lots": lots, "remaining_quantity": new_total, "cost_per_unit": price}).eq('id', int(pm['id'])).execute()
+                        imports_done += 1
+                st.success(f"✅ Imported {imports_done} row(s). Created {new_created} new material(s).")
+                del st.session_state.bulk_preview_df
+                time.sleep(2); clear_cache(); st.rerun()
+            if cb2.button("❌ Cancel / Reset", key="cancel_bulk"):
+                del st.session_state.bulk_preview_df
+                st.rerun()
