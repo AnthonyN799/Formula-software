@@ -217,7 +217,7 @@ def generate_partner_inventory_pdf(partner_name, items_df, date_str):
     terms = (
         "1. Title and ownership of all goods listed above remain strictly with Therapeutic Oils until sold to an end consumer.\n"
         "2. The Consignee agrees to display and store the goods appropriately.\n"
-        "3. The 'Unit Price' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
+        "3. The 'Total Price' amount must be paid to Therapeutic Oils for every unit sold during the reporting period.\n"
         "4. Unsold goods may be recalled by Therapeutic Oils or returned by the Consignee at any time, provided they are in sellable condition."
     )
     pdf.multi_cell(0, 5, terms)
@@ -346,6 +346,89 @@ def check_password():
 # --- Main App Execution ---
 if check_password():
     inject_custom_css()
+
+    # --- AUTO-SYNC COGS based on current RM avg prices ---
+    # Smart versioning:
+    #   - Drift > 5%: archive old, create new version (preserves audit trail for big changes)
+    #   - Drift > $0.01 but < 5%: silent in-place update (no version spam)
+    # Historical records (FP unit_cogs, sales_records) are NEVER touched.
+    def auto_sync_cogs():
+        try:
+            cogs_resp = supabase.table('cogs_records').select("*").execute()
+            cogs_records = pd.DataFrame(cogs_resp.data) if cogs_resp.data else pd.DataFrame()
+            if cogs_records.empty: return
+            if 'is_active' in cogs_records.columns:
+                active = cogs_records[cogs_records['is_active'] != False]
+            else:
+                active = cogs_records
+            if active.empty: return
+            inv_resp = supabase.table('inventory').select("*").execute()
+            inv_df = pd.DataFrame(inv_resp.data) if inv_resp.data else pd.DataFrame()
+            form_resp = supabase.table('formulas').select("*").execute()
+            form_df = pd.DataFrame(form_resp.data) if form_resp.data else pd.DataFrame()
+            if inv_df.empty or form_df.empty: return
+
+            def _rm_avg(mat_row):
+                lots = mat_row.get('lots', [])
+                if isinstance(lots, float) or (isinstance(lots, str) and lots in ["", "nan", "[]"]):
+                    lots = []
+                default_p = float(mat_row['price_per_kg'])
+                if not lots: return default_p
+                total_val = sum(float(l.get('Qty (Kg)', 0)) * float(l.get('Price/Kg', default_p)) for l in lots)
+                total_q = sum(float(l.get('Qty (Kg)', 0)) for l in lots)
+                return (total_val / total_q) if total_q > 0 else default_p
+
+            updates = 0
+            for _, prof in active.iterrows():
+                fname = prof['formula_name']
+                if fname == "None" or fname not in form_df['formula_name'].values: continue
+                fill_w = float(prof['fill_weight_g'])
+                rec = form_df[form_df['formula_name'] == fname].iloc[0]['recipe']
+                if isinstance(rec, dict):
+                    rec_items = [{"Ingredient": k, "%": v} for k, v in rec.items()]
+                elif isinstance(rec, list):
+                    rec_items = rec
+                else:
+                    continue
+                new_bulk = 0.0
+                for rr in rec_items:
+                    ing = rr.get('Ingredient'); pct = rr.get('%', 0)
+                    req_g = (pct/100) * fill_w
+                    m = inv_df[inv_df['trade_name'] == ing]
+                    if not m.empty:
+                        new_bulk += (req_g/1000) * _rm_avg(m.iloc[0])
+                pack_c = float(prof.get('packaging_cost', 0) or 0)
+                mfg_c = float(prof.get('mfg_cost', 0) or 0)
+                lbl_c = float(prof.get('label_cost', 0) or 0)
+                new_total = new_bulk + pack_c + mfg_c + lbl_c
+                old_total = float(prof['total_cogs'])
+                drift_abs = abs(new_total - old_total)
+                drift_pct = (drift_abs / old_total * 100) if old_total > 0 else 0
+
+                if drift_abs <= 0.01:
+                    continue  # no meaningful change
+
+                retail = float(prof['target_retail'])
+                new_margin = ((retail - new_total) / retail * 100) if retail > 0 else 0
+
+                if drift_pct > 5.0:
+                    # Significant drift: archive old version, create new
+                    supabase.table('cogs_records').update({"is_active": False}).eq('id', int(prof['id'])).execute()
+                    supabase.table('cogs_records').insert({"product_name": prof['product_name'], "formula_name": fname, "fill_weight_g": fill_w, "primary_packaging": prof['primary_packaging'], "bulk_cost": float(new_bulk), "packaging_cost": pack_c, "mfg_cost": mfg_c, "label_cost": lbl_c, "total_cogs": float(new_total), "target_retail": retail, "gross_margin_pct": float(new_margin), "version": int(prof.get('version', 1) or 1) + 1, "is_active": True, "parent_id": int(prof['id'])}).execute()
+                else:
+                    # Small drift: silent in-place update
+                    supabase.table('cogs_records').update({"bulk_cost": float(new_bulk), "total_cogs": float(new_total), "gross_margin_pct": float(new_margin)}).eq('id', int(prof['id'])).execute()
+                updates += 1
+            if updates > 0:
+                _fetch_cached.clear()
+        except Exception:
+            pass
+
+    # Run auto-sync only once per session reload (not on every minor rerun)
+    if "cogs_synced_this_session" not in st.session_state:
+        auto_sync_cogs()
+        st.session_state.cogs_synced_this_session = True
+
     user_role = st.session_state.get("user_role", "admin")
     if user_role == "admin":
         MODULES = {
@@ -1178,6 +1261,8 @@ if check_password():
                                     if sorted_new: new_last = float(sorted_new[0].get('Price/Kg', mat['price_per_kg']) or mat['price_per_kg'])
                                 supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": new_total_kg, "price_per_kg": new_last}).eq('id', int(mat['id'])).execute()
                                 st.success(f"Saved! Avg: ${new_avg:.2f}/Kg | Last: ${new_last:.2f}/Kg")
+                                if "cogs_synced_this_session" in st.session_state:
+                                    del st.session_state.cogs_synced_this_session
                                 time.sleep(1.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
@@ -2568,6 +2653,8 @@ if check_password():
                             supabase.table('packaging').update({"lots": lots, "remaining_quantity": new_total, "cost_per_unit": price}).eq('id', int(pm['id'])).execute()
                         imports_done += 1
                 st.success(f"✅ Imported {imports_done} row(s). Created {new_created} new material(s).")
+                if "cogs_synced_this_session" in st.session_state:
+                    del st.session_state.cogs_synced_this_session
                 del st.session_state.bulk_preview_df
                 time.sleep(2); clear_cache(); st.rerun()
             if cb2.button("❌ Cancel / Reset", key="cancel_bulk"):
