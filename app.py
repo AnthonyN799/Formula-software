@@ -1594,31 +1594,9 @@ if check_password():
     elif menu == "COGS Calculator":
         d = load_tables('formulas', 'inventory', 'packaging', 'cogs_records')
         formulas_df = d['formulas']; inventory = d['inventory']; packaging = d['packaging']; cogs_records_df = d['cogs_records']
-        st.title("Cost of Goods Sold (COGS)")
-        st.markdown("<p style='opacity: 0.6;'>Calculate unit economics and profile profit margins.</p>", unsafe_allow_html=True)
-        with st.container(border=True):
-            st.markdown("#### Step 1: Physical Product Specs")
-            c1, c2, c3 = st.columns(3)
-            if not formulas_df.empty:
-                f_opts = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in formulas_df.iterrows()]
-                sel_form = c1.selectbox("Base Formula", f_opts)
-            else:
-                sel_form = None; c1.warning("No formulas in vault.")
-            fill_wt = c2.number_input("Fill Weight per Unit (grams)", min_value=1.0, value=30.0, step=5.0)
-            if not packaging.empty:
-                p_opts = [f"[{r['pm_code']}] {r['material_name']}" for _, r in packaging.iterrows()]
-                p_opts.insert(0, "None / Custom")
-                sel_pack = c3.selectbox("Primary Packaging", p_opts)
-            else:
-                sel_pack = "None / Custom"; c3.warning("No packaging in vault.")
-        with st.container(border=True):
-            st.markdown("#### Step 2: Component & Variable Costs (per unit)")
-            cm1, cm2, cm3, cm4 = st.columns(4)
-            cost_mfg = cm1.number_input("Labor / Mfg ($)", min_value=0.0, value=0.10, step=0.05)
-            cost_lbl = cm2.number_input("Label Cost ($)", min_value=0.0, value=0.05, step=0.05)
-            cost_sec = cm3.number_input("Secondary Box ($)", min_value=0.0, value=0.00, step=0.05)
-            cost_ter = cm4.number_input("Tertiary/Carton ($)", min_value=0.0, value=0.00, step=0.05)
-        st.write("##")
+        st.title("Cost of Goods Sold")
+        st.markdown("<p style='opacity: 0.6;'>Build profiles, monitor margins, and react to RM price changes.</p>", unsafe_allow_html=True)
+
         # Helper: compute avg and last cost per Kg for a raw material
         def get_rm_costs(mat_row):
             lots = mat_row.get('lots', [])
@@ -1634,172 +1612,325 @@ if check_password():
             last = float(sorted_l[0].get('Price/Kg', default_p)) if sorted_l else default_p
             return avg, last
 
-        bulk_cost_avg = 0.0
-        bulk_cost_last = 0.0
-        n_only = ""
-        if sel_form:
-            n_only = sel_form.split("] ")[1]
-            rec = formulas_df[formulas_df['formula_name'] == n_only].iloc[0]['recipe']
-            if isinstance(rec, dict):
-                rec_items = [{"Ingredient": k, "%": v} for k, v in rec.items()]
-            elif isinstance(rec, list):
-                rec_items = rec
-            else:
-                rec_items = []
-            for row in rec_items:
-                ing = row.get('Ingredient'); p = row.get('%', 0)
-                req_g = (p/100) * fill_wt
-                m = inventory[inventory['trade_name'] == ing]
-                if not m.empty:
-                    avg_p, last_p = get_rm_costs(m.iloc[0])
-                    bulk_cost_avg += (req_g/1000) * avg_p
-                    bulk_cost_last += (req_g/1000) * last_p
-        bulk_cost = bulk_cost_avg  # default display uses avg
-        pack_cost = 0.0
-        if sel_pack != "None / Custom":
-            p_only = sel_pack.split("] ")[1]
-            pack_cost = float(packaging[packaging['material_name'] == p_only].iloc[0]['cost_per_unit'])
-        total_cogs_avg = bulk_cost_avg + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
-        total_cogs_last = bulk_cost_last + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
-        total_cogs = total_cogs_avg
-        st.markdown("#### Cost Breakdown & Profit Margin")
-        r1, r2 = st.columns([2, 1])
-        with r1:
-            st.dataframe(pd.DataFrame([
-                {"Component": "Formula (Bulk Oil)", "Cost @ Avg": f"${bulk_cost_avg:.4f}", "Cost @ Last": f"${bulk_cost_last:.4f}"},
-                {"Component": "Primary Bottle/Dropper", "Cost @ Avg": f"${pack_cost:.4f}", "Cost @ Last": f"${pack_cost:.4f}"},
-                {"Component": "Labeling", "Cost @ Avg": f"${cost_lbl:.4f}", "Cost @ Last": f"${cost_lbl:.4f}"},
-                {"Component": "Secondary Packaging", "Cost @ Avg": f"${cost_sec:.4f}", "Cost @ Last": f"${cost_sec:.4f}"},
-                {"Component": "Tertiary Packaging", "Cost @ Avg": f"${cost_ter:.4f}", "Cost @ Last": f"${cost_ter:.4f}"},
-                {"Component": "Labor / Mfg Overhead", "Cost @ Avg": f"${cost_mfg:.4f}", "Cost @ Last": f"${cost_mfg:.4f}"}
-            ]), use_container_width=True, hide_index=True)
-        with r2:
-            with st.container(border=True):
-                ca1, ca2 = st.columns(2)
-                ca1.metric("COGS @ Avg Cost", f"${total_cogs_avg:.2f}")
-                delta_cogs = total_cogs_last - total_cogs_avg
-                ca2.metric("COGS @ Last Cost", f"${total_cogs_last:.2f}", f"{'+' if delta_cogs >= 0 else ''}${delta_cogs:.2f}" if abs(delta_cogs) > 0.001 else None)
-                target_retail = st.number_input("Target Retail Price ($)", min_value=0.0, value=total_cogs_avg * 4 if total_cogs_avg > 0 else 0.0, step=1.0)
-                margin_pct = 0.0
-                margin_pct_last = 0.0
-                if target_retail > 0:
-                    gross_profit = target_retail - total_cogs_avg
-                    margin_pct = (gross_profit / target_retail) * 100
-                    margin_pct_last = ((target_retail - total_cogs_last) / target_retail) * 100
-                    st.write("---")
-                    m1, m2 = st.columns(2)
-                    m1.metric("Margin @ Avg", f"{margin_pct:.1f}%")
-                    m2.metric("Margin @ Last", f"{margin_pct_last:.1f}%")
-        st.write("##")
-        with st.container(border=True):
-            st.markdown("#### 💾 Save COGS Configuration")
-            sc1, sc2 = st.columns([3, 1])
-            cogs_name = sc1.text_input("Product Name / SKU", placeholder="e.g., Actiflam 30ml Retail Bottle")
-            sc2.write("<br>", unsafe_allow_html=True)
-            if sc2.button("Commit Profile to Vault", type="primary", use_container_width=True):
-                if cogs_name:
-                    supabase.table('cogs_records').insert({"product_name": cogs_name, "formula_name": n_only if sel_form else "None", "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom", "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl, "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct, "version": 1, "is_active": True}).execute()
-                    st.success(f"Saved profile: {cogs_name}")
-                    clear_cache(); st.rerun()
+        # Helper: compute fresh COGS for a saved profile using current RM prices
+        def recalc_profile_cogs(cogs_item, basis="avg"):
+            recalc_formula_name = cogs_item['formula_name']
+            recalc_fill_wt = float(cogs_item['fill_weight_g'])
+            recalc_bulk = 0.0
+            if not formulas_df.empty and recalc_formula_name in formulas_df['formula_name'].values:
+                rec_f = formulas_df[formulas_df['formula_name'] == recalc_formula_name].iloc[0]['recipe']
+                if isinstance(rec_f, dict):
+                    rec_items_r = [{"Ingredient": k, "%": v} for k, v in rec_f.items()]
+                elif isinstance(rec_f, list):
+                    rec_items_r = rec_f
                 else:
-                    st.error("Please enter a Product Name before saving.")
-        st.write("---")
-        st.markdown("#### 📂 Saved COGS Profiles")
-        if not cogs_records_df.empty:
-            if 'is_active' in cogs_records_df.columns:
-                active_cogs = cogs_records_df[cogs_records_df['is_active'] != False].copy()
+                    rec_items_r = []
+                for rr in rec_items_r:
+                    r_ing = rr.get('Ingredient'); r_pct = rr.get('%', 0)
+                    r_req = (r_pct / 100) * recalc_fill_wt
+                    r_m = inventory[inventory['trade_name'] == r_ing]
+                    if not r_m.empty:
+                        avg_p, last_p = get_rm_costs(r_m.iloc[0])
+                        chosen = avg_p if basis == "avg" else last_p
+                        recalc_bulk += (r_req / 1000) * chosen
+            recalc_pack = float(cogs_item.get('packaging_cost', 0) or 0)
+            recalc_mfg = float(cogs_item.get('mfg_cost', 0) or 0)
+            recalc_lbl = float(cogs_item.get('label_cost', 0) or 0)
+            return recalc_bulk + recalc_pack + recalc_mfg + recalc_lbl, recalc_bulk
+
+        tab_dash, tab_build, tab_profiles = st.tabs(["📊 Dashboard", "🧪 Build New COGS", "📂 Saved Profiles"])
+
+        # ============= TAB 1: DASHBOARD =============
+        with tab_dash:
+            if not cogs_records_df.empty:
+                if 'is_active' in cogs_records_df.columns:
+                    active_cogs = cogs_records_df[cogs_records_df['is_active'] != False].copy()
+                else:
+                    active_cogs = cogs_records_df.copy()
+
+                # Build Avg vs Last comparison for each profile
+                dash_data = []
+                for _, prof in active_cogs.iterrows():
+                    cogs_avg_now, _ = recalc_profile_cogs(prof, "avg")
+                    cogs_last_now, _ = recalc_profile_cogs(prof, "last")
+                    saved_cogs = float(prof['total_cogs'])
+                    retail = float(prof['target_retail'])
+                    margin_avg = ((retail - cogs_avg_now) / retail * 100) if retail > 0 else 0
+                    margin_last = ((retail - cogs_last_now) / retail * 100) if retail > 0 else 0
+                    margin_saved = ((retail - saved_cogs) / retail * 100) if retail > 0 else 0
+                    drift = cogs_avg_now - saved_cogs
+                    dash_data.append({
+                        "Product": prof['product_name'],
+                        "Retail": retail,
+                        "Saved COGS": saved_cogs,
+                        "COGS @ Avg (Now)": cogs_avg_now,
+                        "COGS @ Last (Now)": cogs_last_now,
+                        "Margin @ Avg": margin_avg,
+                        "Margin @ Last": margin_last,
+                        "Drift vs Saved": drift,
+                    })
+
+                if dash_data:
+                    dash_df = pd.DataFrame(dash_data)
+                    # KPI cards
+                    avg_margin_avg = dash_df['Margin @ Avg'].mean()
+                    avg_margin_last = dash_df['Margin @ Last'].mean()
+                    products_below_30 = (dash_df['Margin @ Avg'] < 30).sum()
+                    products_drifting = (dash_df['Drift vs Saved'].abs() > 0.10).sum()
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric("Profiles Tracked", f"{len(dash_df)}")
+                    k2.metric("Avg Margin (Avg Cost)", f"{avg_margin_avg:.1f}%")
+                    k3.metric("Avg Margin (Last Cost)", f"{avg_margin_last:.1f}%", f"{(avg_margin_last - avg_margin_avg):+.1f}pp" if abs(avg_margin_last - avg_margin_avg) > 0.1 else None)
+                    k4.metric("⚠️ Need Recalc", f"{products_drifting}", help="Saved COGS differs from current RM-based COGS by more than $0.10")
+                    if products_below_30 > 0:
+                        st.warning(f"🟠 {products_below_30} product(s) have margin below 30% at average cost. Review pricing.")
+                    st.write("---")
+                    st.markdown("#### Profile-by-Profile View")
+                    st.dataframe(dash_df, use_container_width=True, hide_index=True, column_config={
+                        "Retail": st.column_config.NumberColumn(format="$%.2f"),
+                        "Saved COGS": st.column_config.NumberColumn(format="$%.2f"),
+                        "COGS @ Avg (Now)": st.column_config.NumberColumn(format="$%.2f"),
+                        "COGS @ Last (Now)": st.column_config.NumberColumn(format="$%.2f"),
+                        "Margin @ Avg": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Margin @ Last": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Drift vs Saved": st.column_config.NumberColumn(format="$%.2f"),
+                    })
+                else:
+                    st.info("No active COGS profiles yet.")
             else:
-                active_cogs = cogs_records_df.copy()
-            display_cogs = active_cogs.copy()
-            display_cogs['Date'] = pd.to_datetime(display_cogs['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
-            display_cogs.insert(0, '🔍', False)
+                st.info("No COGS profiles saved yet. Go to **Build New COGS** to create one.")
+
+        # ============= TAB 2: BUILD NEW COGS =============
+        with tab_build:
             with st.container(border=True):
-                edited_cogs = st.data_editor(
-                    display_cogs[['🔍', 'Date', 'product_name', 'formula_name', 'fill_weight_g', 'total_cogs', 'target_retail', 'gross_margin_pct']],
-                    use_container_width=True, hide_index=True, disabled=['Date', 'formula_name', 'fill_weight_g', 'total_cogs', 'gross_margin_pct'],
-                    column_config={"total_cogs": st.column_config.NumberColumn("Total COGS", format="$%.2f"), "target_retail": st.column_config.NumberColumn("Target Retail", format="$%.2f"), "gross_margin_pct": st.column_config.NumberColumn("Margin %", format="%.1f%%")}
-                )
-                if st.button("💾 Synchronize COGS Vault", type="primary"):
-                    for index, row in edited_cogs.iterrows():
-                        orig = active_cogs.loc[index]
-                        if row['product_name'] != orig['product_name'] or row['target_retail'] != orig['target_retail']:
-                            new_retail = float(row['target_retail'])
-                            new_cogs = float(orig['total_cogs'])
-                            new_margin = ((new_retail - new_cogs) / new_retail * 100) if new_retail > 0 else 0.0
-                            supabase.table('cogs_records').update({"product_name": row['product_name'], "target_retail": new_retail, "gross_margin_pct": new_margin}).eq('id', int(orig['id'])).execute()
-                    st.success("COGS profiles synced!")
-                    clear_cache(); st.rerun()
-            selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
-            if not selected_cogs.empty:
-                cogs_item = active_cogs.loc[selected_cogs.index[0]]
-                st.write("##")
+                st.markdown("#### Step 1: Physical Product Specs")
+                c1, c2, c3 = st.columns(3)
+                if not formulas_df.empty:
+                    f_opts = [f"[{r['fr_code']}] {r['formula_name']}" for _, r in formulas_df.iterrows()]
+                    sel_form = c1.selectbox("Base Formula", f_opts)
+                else:
+                    sel_form = None; c1.warning("No formulas in vault.")
+                fill_wt = c2.number_input("Fill Weight per Unit (grams)", min_value=1.0, value=30.0, step=5.0)
+                if not packaging.empty:
+                    p_opts = [f"[{r['pm_code']}] {r['material_name']}" for _, r in packaging.iterrows()]
+                    p_opts.insert(0, "None / Custom")
+                    sel_pack = c3.selectbox("Primary Packaging", p_opts)
+                else:
+                    sel_pack = "None / Custom"; c3.warning("No packaging in vault.")
+            with st.container(border=True):
+                st.markdown("#### Step 2: Component & Variable Costs (per unit)")
+                cm1, cm2, cm3, cm4 = st.columns(4)
+                cost_mfg = cm1.number_input("Labor / Mfg ($)", min_value=0.0, value=0.10, step=0.05)
+                cost_lbl = cm2.number_input("Label Cost ($)", min_value=0.0, value=0.05, step=0.05)
+                cost_sec = cm3.number_input("Secondary Box ($)", min_value=0.0, value=0.00, step=0.05)
+                cost_ter = cm4.number_input("Tertiary/Carton ($)", min_value=0.0, value=0.00, step=0.05)
+
+            bulk_cost_avg = 0.0
+            bulk_cost_last = 0.0
+            n_only = ""
+            if sel_form:
+                n_only = sel_form.split("] ")[1]
+                rec = formulas_df[formulas_df['formula_name'] == n_only].iloc[0]['recipe']
+                if isinstance(rec, dict):
+                    rec_items = [{"Ingredient": k, "%": v} for k, v in rec.items()]
+                elif isinstance(rec, list):
+                    rec_items = rec
+                else:
+                    rec_items = []
+                for row in rec_items:
+                    ing = row.get('Ingredient'); p = row.get('%', 0)
+                    req_g = (p/100) * fill_wt
+                    m = inventory[inventory['trade_name'] == ing]
+                    if not m.empty:
+                        avg_p, last_p = get_rm_costs(m.iloc[0])
+                        bulk_cost_avg += (req_g/1000) * avg_p
+                        bulk_cost_last += (req_g/1000) * last_p
+            bulk_cost = bulk_cost_avg
+            pack_cost = 0.0
+            if sel_pack != "None / Custom":
+                p_only = sel_pack.split("] ")[1]
+                pack_cost = float(packaging[packaging['material_name'] == p_only].iloc[0]['cost_per_unit'])
+            total_cogs_avg = bulk_cost_avg + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
+            total_cogs_last = bulk_cost_last + pack_cost + cost_mfg + cost_lbl + cost_sec + cost_ter
+            total_cogs = total_cogs_avg
+
+            # KPI cards
+            st.write("---")
+            kc1, kc2, kc3 = st.columns(3)
+            kc1.metric("COGS @ Avg Cost", f"${total_cogs_avg:.2f}")
+            delta_cogs = total_cogs_last - total_cogs_avg
+            kc2.metric("COGS @ Last Cost", f"${total_cogs_last:.2f}", f"{'+' if delta_cogs >= 0 else ''}${delta_cogs:.2f}" if abs(delta_cogs) > 0.001 else None)
+            kc3.metric("Cost Volatility", f"{((total_cogs_last - total_cogs_avg) / total_cogs_avg * 100) if total_cogs_avg > 0 else 0:.1f}%", help="Difference between Last and Avg cost as % of Avg")
+
+            r1, r2 = st.columns([2, 1])
+            with r1:
+                st.markdown("#### Cost Breakdown")
+                st.dataframe(pd.DataFrame([
+                    {"Component": "Formula (Bulk Oil)", "Cost @ Avg": f"${bulk_cost_avg:.4f}", "Cost @ Last": f"${bulk_cost_last:.4f}"},
+                    {"Component": "Primary Bottle/Dropper", "Cost @ Avg": f"${pack_cost:.4f}", "Cost @ Last": f"${pack_cost:.4f}"},
+                    {"Component": "Labeling", "Cost @ Avg": f"${cost_lbl:.4f}", "Cost @ Last": f"${cost_lbl:.4f}"},
+                    {"Component": "Secondary Packaging", "Cost @ Avg": f"${cost_sec:.4f}", "Cost @ Last": f"${cost_sec:.4f}"},
+                    {"Component": "Tertiary Packaging", "Cost @ Avg": f"${cost_ter:.4f}", "Cost @ Last": f"${cost_ter:.4f}"},
+                    {"Component": "Labor / Mfg Overhead", "Cost @ Avg": f"${cost_mfg:.4f}", "Cost @ Last": f"${cost_mfg:.4f}"}
+                ]), use_container_width=True, hide_index=True)
+            with r2:
                 with st.container(border=True):
-                    st.markdown(f"#### {cogs_item['product_name']}")
-                    st.write(f"**Base Formula:** {cogs_item['formula_name']} ({cogs_item['fill_weight_g']}g fill)")
-                    st.write(f"**Primary Packaging:** {cogs_item['primary_packaging']}")
-                    # --- RECALCULATE COGS WITH CURRENT RM PRICES ---
-                    with st.expander("🔄 Recalculate COGS with Current RM Prices"):
-                        recalc_formula_name = cogs_item['formula_name']
-                        recalc_fill_wt = float(cogs_item['fill_weight_g'])
-                        recalc_bulk = 0.0
-                        if not formulas_df.empty and recalc_formula_name in formulas_df['formula_name'].values:
-                            rec_f = formulas_df[formulas_df['formula_name'] == recalc_formula_name].iloc[0]['recipe']
-                            if isinstance(rec_f, dict):
-                                rec_items_r = [{"Ingredient": k, "%": v} for k, v in rec_f.items()]
-                            elif isinstance(rec_f, list):
-                                rec_items_r = rec_f
+                    st.markdown("#### Pricing & Margin")
+                    target_retail = st.number_input("Target Retail Price ($)", min_value=0.0, value=total_cogs_avg * 4 if total_cogs_avg > 0 else 0.0, step=1.0, key="build_retail")
+                    margin_pct = 0.0
+                    margin_pct_last = 0.0
+                    if target_retail > 0:
+                        gross_profit = target_retail - total_cogs_avg
+                        margin_pct = (gross_profit / target_retail) * 100
+                        margin_pct_last = ((target_retail - total_cogs_last) / target_retail) * 100
+                        m1, m2 = st.columns(2)
+                        m1.metric("Margin @ Avg", f"{margin_pct:.1f}%")
+                        m2.metric("Margin @ Last", f"{margin_pct_last:.1f}%")
+
+            # What-if simulator
+            with st.expander("🎯 What-If Price Simulator"):
+                st.write("Drag the slider to explore different retail prices.")
+                if total_cogs_avg > 0:
+                    sim_min = float(total_cogs_avg * 1.5)
+                    sim_max = float(total_cogs_avg * 8)
+                    sim_default = float(total_cogs_avg * 4)
+                    sim_retail = st.slider("Simulated Retail Price ($)", min_value=sim_min, max_value=sim_max, value=sim_default, step=0.5, key="sim_retail")
+                    sim_margin_avg = ((sim_retail - total_cogs_avg) / sim_retail * 100) if sim_retail > 0 else 0
+                    sim_margin_last = ((sim_retail - total_cogs_last) / sim_retail * 100) if sim_retail > 0 else 0
+                    sim_profit_avg = sim_retail - total_cogs_avg
+                    sim_profit_last = sim_retail - total_cogs_last
+                    s1, s2, s3, s4 = st.columns(4)
+                    s1.metric("Sim Retail", f"${sim_retail:.2f}")
+                    s2.metric("Profit @ Avg", f"${sim_profit_avg:.2f}")
+                    s3.metric("Margin @ Avg", f"{sim_margin_avg:.1f}%")
+                    s4.metric("Margin @ Last", f"{sim_margin_last:.1f}%")
+                else:
+                    st.info("Build a COGS first (select a formula and packaging) to use the simulator.")
+
+            # Save
+            with st.container(border=True):
+                st.markdown("#### 💾 Save COGS Profile")
+                sc1, sc2 = st.columns([3, 1])
+                cogs_name = sc1.text_input("Product Name / SKU", placeholder="e.g., Actiflam 30ml Retail Bottle", key="build_cogs_name")
+                sc2.write("<br>", unsafe_allow_html=True)
+                if sc2.button("Commit Profile", type="primary", use_container_width=True, key="build_save_btn"):
+                    if cogs_name:
+                        supabase.table('cogs_records').insert({"product_name": cogs_name, "formula_name": n_only if sel_form else "None", "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom", "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl, "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct, "version": 1, "is_active": True}).execute()
+                        st.success(f"Saved profile: {cogs_name}")
+                        clear_cache(); st.rerun()
+                    else:
+                        st.error("Please enter a Product Name before saving.")
+
+        # ============= TAB 3: SAVED PROFILES =============
+        with tab_profiles:
+            if not cogs_records_df.empty:
+                if 'is_active' in cogs_records_df.columns:
+                    active_cogs = cogs_records_df[cogs_records_df['is_active'] != False].copy()
+                else:
+                    active_cogs = cogs_records_df.copy()
+                display_cogs = active_cogs.copy()
+                display_cogs['Date'] = pd.to_datetime(display_cogs['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
+                display_cogs.insert(0, '🔍', False)
+                with st.container(border=True):
+                    edited_cogs = st.data_editor(
+                        display_cogs[['🔍', 'Date', 'product_name', 'formula_name', 'fill_weight_g', 'total_cogs', 'target_retail', 'gross_margin_pct']],
+                        use_container_width=True, hide_index=True, disabled=['Date', 'formula_name', 'fill_weight_g', 'total_cogs', 'gross_margin_pct'],
+                        column_config={"total_cogs": st.column_config.NumberColumn("Total COGS", format="$%.2f"), "target_retail": st.column_config.NumberColumn("Target Retail", format="$%.2f"), "gross_margin_pct": st.column_config.NumberColumn("Margin %", format="%.1f%%")}
+                    )
+                    if st.button("💾 Synchronize COGS Vault", type="primary"):
+                        for index, row in edited_cogs.iterrows():
+                            orig = active_cogs.loc[index]
+                            if row['product_name'] != orig['product_name'] or row['target_retail'] != orig['target_retail']:
+                                new_retail = float(row['target_retail'])
+                                new_cogs = float(orig['total_cogs'])
+                                new_margin = ((new_retail - new_cogs) / new_retail * 100) if new_retail > 0 else 0.0
+                                supabase.table('cogs_records').update({"product_name": row['product_name'], "target_retail": new_retail, "gross_margin_pct": new_margin}).eq('id', int(orig['id'])).execute()
+                        st.success("COGS profiles synced!")
+                        clear_cache(); st.rerun()
+                selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
+                if not selected_cogs.empty:
+                    cogs_item = active_cogs.loc[selected_cogs.index[0]]
+                    st.write("##")
+                    with st.container(border=True):
+                        st.markdown(f"#### {cogs_item['product_name']}")
+                        st.write(f"**Base Formula:** {cogs_item['formula_name']} ({cogs_item['fill_weight_g']}g fill)")
+                        st.write(f"**Primary Packaging:** {cogs_item['primary_packaging']}")
+
+                        # --- AT-A-GLANCE COGS COMPARISON ---
+                        live_avg, _ = recalc_profile_cogs(cogs_item, "avg")
+                        live_last, _ = recalc_profile_cogs(cogs_item, "last")
+                        saved_cogs = float(cogs_item['total_cogs'])
+                        retail = float(cogs_item['target_retail'])
+                        m_saved = ((retail - saved_cogs) / retail * 100) if retail > 0 else 0
+                        m_avg = ((retail - live_avg) / retail * 100) if retail > 0 else 0
+                        m_last = ((retail - live_last) / retail * 100) if retail > 0 else 0
+                        pc1, pc2, pc3, pc4 = st.columns(4)
+                        pc1.metric("Retail Price", f"${retail:.2f}")
+                        pc2.metric("Saved COGS", f"${saved_cogs:.2f}", f"{m_saved:.1f}% margin")
+                        pc3.metric("Live COGS @ Avg", f"${live_avg:.2f}", f"{m_avg:.1f}% margin")
+                        pc4.metric("Live COGS @ Last", f"${live_last:.2f}", f"{m_last:.1f}% margin")
+
+                        # --- WHAT-IF SIMULATOR PER PROFILE ---
+                        with st.expander("🎯 What-If Price Simulator"):
+                            sim_min2 = float(min(live_avg, saved_cogs) * 1.2)
+                            sim_max2 = float(max(live_avg, saved_cogs) * 8)
+                            sim_retail2 = st.slider("Simulated Retail Price ($)", min_value=sim_min2, max_value=sim_max2, value=retail, step=0.5, key=f"sim_retail_{cogs_item['id']}")
+                            sm_avg = ((sim_retail2 - live_avg) / sim_retail2 * 100) if sim_retail2 > 0 else 0
+                            sm_last = ((sim_retail2 - live_last) / sim_retail2 * 100) if sim_retail2 > 0 else 0
+                            sa1, sa2, sa3 = st.columns(3)
+                            sa1.metric("Sim Retail", f"${sim_retail2:.2f}")
+                            sa2.metric("Margin @ Avg", f"{sm_avg:.1f}%")
+                            sa3.metric("Margin @ Last", f"{sm_last:.1f}%")
+
+                        # --- RECALCULATE COGS ---
+                        with st.expander("🔄 Recalculate COGS with Current RM Prices"):
+                            recalc_total = live_avg
+                            old_total = saved_cogs
+                            delta = recalc_total - old_total
+                            rc1, rc2, rc3 = st.columns(3)
+                            rc1.metric("Saved COGS", f"${old_total:.2f}")
+                            rc2.metric("Recalculated (Avg)", f"${recalc_total:.2f}", f"{'↑' if delta > 0 else '↓'} ${abs(delta):.2f}" if abs(delta) > 0.001 else "No change")
+                            new_margin = ((retail - recalc_total) / retail * 100) if retail > 0 else 0
+                            rc3.metric("New Margin", f"{new_margin:.1f}%")
+                            if abs(delta) > 0.001:
+                                if st.button("✅ Apply Recalculation (Creates New Version)", type="primary", key="recalc_apply"):
+                                    # Recompute bulk separately for accurate save
+                                    _, recalc_bulk = recalc_profile_cogs(cogs_item, "avg")
+                                    recalc_pack = float(cogs_item.get('packaging_cost', 0) or 0)
+                                    recalc_mfg = float(cogs_item.get('mfg_cost', 0) or 0)
+                                    recalc_lbl = float(cogs_item.get('label_cost', 0) or 0)
+                                    supabase.table('cogs_records').update({"is_active": False}).eq('id', int(cogs_item['id'])).execute()
+                                    supabase.table('cogs_records').insert({"product_name": cogs_item['product_name'], "formula_name": cogs_item['formula_name'], "fill_weight_g": float(cogs_item['fill_weight_g']), "primary_packaging": cogs_item['primary_packaging'], "bulk_cost": recalc_bulk, "packaging_cost": recalc_pack, "mfg_cost": recalc_mfg, "label_cost": recalc_lbl, "total_cogs": recalc_total, "target_retail": retail, "gross_margin_pct": new_margin, "version": int(cogs_item.get('version', 1) or 1) + 1, "is_active": True, "parent_id": int(cogs_item['id'])}).execute()
+                                    st.success("New COGS version created! Old version archived.")
+                                    time.sleep(1); clear_cache(); st.rerun()
                             else:
-                                rec_items_r = []
-                            for rr in rec_items_r:
-                                r_ing = rr.get('Ingredient'); r_pct = rr.get('%', 0)
-                                r_req = (r_pct / 100) * recalc_fill_wt
-                                r_m = inventory[inventory['trade_name'] == r_ing]
-                                if not r_m.empty:
-                                    recalc_bulk += (r_req / 1000) * float(r_m['price_per_kg'].values[0])
-                        recalc_pack = float(cogs_item.get('packaging_cost', 0) or 0)
-                        recalc_mfg = float(cogs_item.get('mfg_cost', 0) or 0)
-                        recalc_lbl = float(cogs_item.get('label_cost', 0) or 0)
-                        recalc_total = recalc_bulk + recalc_pack + recalc_mfg + recalc_lbl
-                        old_total = float(cogs_item['total_cogs'])
-                        delta = recalc_total - old_total
-                        rc1, rc2, rc3 = st.columns(3)
-                        rc1.metric("Current COGS", f"${old_total:.2f}")
-                        rc2.metric("Recalculated COGS", f"${recalc_total:.2f}", f"{'↑' if delta > 0 else '↓'} ${abs(delta):.2f}" if delta != 0 else "No change")
-                        old_retail = float(cogs_item['target_retail'])
-                        new_margin = ((old_retail - recalc_total) / old_retail * 100) if old_retail > 0 else 0
-                        rc3.metric("New Margin", f"{new_margin:.1f}%")
-                        if delta != 0:
-                            if st.button("✅ Apply Recalculation (Creates New Version)", type="primary", key="recalc_apply"):
-                                supabase.table('cogs_records').update({"is_active": False}).eq('id', int(cogs_item['id'])).execute()
-                                supabase.table('cogs_records').insert({"product_name": cogs_item['product_name'], "formula_name": recalc_formula_name, "fill_weight_g": recalc_fill_wt, "primary_packaging": cogs_item['primary_packaging'], "bulk_cost": recalc_bulk, "packaging_cost": recalc_pack, "mfg_cost": recalc_mfg, "label_cost": recalc_lbl, "total_cogs": recalc_total, "target_retail": old_retail, "gross_margin_pct": new_margin, "version": int(cogs_item.get('version', 1) or 1) + 1, "is_active": True, "parent_id": int(cogs_item['id'])}).execute()
-                                st.success("New COGS version created! Old version archived.")
-                                time.sleep(1); clear_cache(); st.rerun()
-                        else:
-                            st.info("COGS is already up to date with current RM prices.")
-                    # --- VIEW OLDER VERSIONS ---
-                    with st.expander("📜 View Older COGS Versions"):
-                        all_versions = cogs_records_df[cogs_records_df['product_name'] == cogs_item['product_name']].copy()
-                        if 'version' in all_versions.columns:
-                            all_versions['version'] = all_versions['version'].fillna(1).astype(int)
-                        else:
-                            all_versions['version'] = 1
-                        if 'is_active' in all_versions.columns:
-                            all_versions['is_active'] = all_versions['is_active'].fillna(True)
-                        else:
-                            all_versions['is_active'] = True
-                        all_versions['Status'] = all_versions['is_active'].apply(lambda x: "✅ Active" if x else "📦 Archived")
-                        all_versions['Date'] = pd.to_datetime(all_versions['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
-                        if len(all_versions) > 1:
-                            st.dataframe(all_versions[['Date', 'version', 'Status', 'total_cogs', 'target_retail', 'gross_margin_pct']].sort_values('version', ascending=False), use_container_width=True, hide_index=True, column_config={"total_cogs": st.column_config.NumberColumn("COGS", format="$%.2f"), "target_retail": st.column_config.NumberColumn("Retail", format="$%.2f"), "gross_margin_pct": st.column_config.NumberColumn("Margin", format="%.1f%%")})
-                        else:
-                            st.info("No older versions. This is the first version.")
-                    with st.expander("System Actions"):
-                        del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
-                        if st.button("Erase COGS Profile"):
-                            if del_cogs_pass == "lab2026":
-                                supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); clear_cache(); st.rerun()
-                            else: st.error("Incorrect passcode.")
-        else: st.info("No COGS profiles saved in the vault.")
+                                st.info("COGS is already up to date with current RM prices.")
+
+                        # --- VIEW OLDER VERSIONS ---
+                        with st.expander("📜 View Older COGS Versions"):
+                            all_versions = cogs_records_df[cogs_records_df['product_name'] == cogs_item['product_name']].copy()
+                            if 'version' in all_versions.columns:
+                                all_versions['version'] = all_versions['version'].fillna(1).astype(int)
+                            else:
+                                all_versions['version'] = 1
+                            if 'is_active' in all_versions.columns:
+                                all_versions['is_active'] = all_versions['is_active'].fillna(True)
+                            else:
+                                all_versions['is_active'] = True
+                            all_versions['Status'] = all_versions['is_active'].apply(lambda x: "✅ Active" if x else "📦 Archived")
+                            all_versions['Date'] = pd.to_datetime(all_versions['created_at'], errors='coerce').dt.strftime('%Y-%m-%d')
+                            if len(all_versions) > 1:
+                                st.dataframe(all_versions[['Date', 'version', 'Status', 'total_cogs', 'target_retail', 'gross_margin_pct']].sort_values('version', ascending=False), use_container_width=True, hide_index=True, column_config={"total_cogs": st.column_config.NumberColumn("COGS", format="$%.2f"), "target_retail": st.column_config.NumberColumn("Retail", format="$%.2f"), "gross_margin_pct": st.column_config.NumberColumn("Margin", format="%.1f%%")})
+                            else:
+                                st.info("No older versions. This is the first version.")
+
+                        with st.expander("System Actions"):
+                            del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
+                            if st.button("Erase COGS Profile"):
+                                if del_cogs_pass == "lab2026":
+                                    supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); clear_cache(); st.rerun()
+                                else: st.error("Incorrect passcode.")
+            else: st.info("No COGS profiles saved in the vault.")
 
     # --- STOCK LEVELS (READ-ONLY) ---
     elif menu == "Stock Levels":
