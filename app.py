@@ -2227,7 +2227,7 @@ if check_password():
         rm_names = inventory['trade_name'].tolist() if not inventory.empty else []
         pm_names = packaging['material_name'].tolist() if not packaging.empty else []
 
-        tab_table, tab_csv = st.tabs(["✏️ Type/Paste Rows", "📁 Upload CSV"])
+        tab_table, tab_csv = st.tabs(["✏️ Type/Paste Rows", "📁 Upload File"])
 
         # --- TAB 1: In-app table ---
         import_df = None
@@ -2244,22 +2244,91 @@ if check_password():
                 import_df = valid_rows.copy()
                 st.session_state.bulk_preview_df = import_df
 
-        # --- TAB 2: CSV upload ---
+        # --- TAB 2: Excel/CSV upload ---
         with tab_csv:
-            st.markdown("**Upload a CSV** with just 3 columns: `name`, `qty`, `price`")
+            st.markdown("**Download a smart Excel template** with dropdowns of all your existing materials and auto-filled prices.")
+
+            # Generate Excel template with data validation
+            def build_excel_template():
+                from openpyxl import Workbook
+                from openpyxl.worksheet.datavalidation import DataValidation
+                from openpyxl.styles import Font, PatternFill, Alignment
+                import io
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Bulk Import"
+                # Header
+                ws['A1'] = "name"; ws['B1'] = "qty"; ws['C1'] = "price"
+                for cell in ['A1', 'B1', 'C1']:
+                    ws[cell].font = Font(bold=True, color="FFFFFF")
+                    ws[cell].fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+                    ws[cell].alignment = Alignment(horizontal="center")
+                ws.column_dimensions['A'].width = 40
+                ws.column_dimensions['B'].width = 12
+                ws.column_dimensions['C'].width = 14
+                # Reference sheet with name -> last price lookup
+                ref_sheet = wb.create_sheet("_Reference")
+                ref_sheet['A1'] = "Name"; ref_sheet['B1'] = "Last Price"
+                ref_row = 2
+                all_refs = []
+                for _, mat in inventory.iterrows():
+                    ref_sheet.cell(row=ref_row, column=1, value=str(mat['trade_name']))
+                    ref_sheet.cell(row=ref_row, column=2, value=float(mat['price_per_kg']))
+                    all_refs.append(str(mat['trade_name']))
+                    ref_row += 1
+                for _, pm in packaging.iterrows():
+                    ref_sheet.cell(row=ref_row, column=1, value=str(pm['material_name']))
+                    ref_sheet.cell(row=ref_row, column=2, value=float(pm['cost_per_unit']))
+                    all_refs.append(str(pm['material_name']))
+                    ref_row += 1
+                ref_sheet.sheet_state = 'hidden'
+                # Data validation: dropdown for column A
+                if all_refs:
+                    last_ref_row = ref_row - 1
+                    dv = DataValidation(type="list", formula1=f"=_Reference!$A$2:$A${last_ref_row}", allow_blank=True)
+                    dv.add("A2:A1000")
+                    ws.add_data_validation(dv)
+                    # Auto-fill price using VLOOKUP for column C
+                    for r in range(2, 1001):
+                        ws.cell(row=r, column=3, value=f'=IFERROR(VLOOKUP(A{r},_Reference!A:B,2,FALSE),"")')
+                # Empty row guidance
+                ws['A2'] = ""; ws['B2'] = ""
+                buf = io.BytesIO()
+                wb.save(buf)
+                buf.seek(0)
+                return buf.getvalue()
+
+            try:
+                excel_bytes = build_excel_template()
+                st.download_button("📥 Download Smart Excel Template (with dropdowns)", data=excel_bytes, file_name="bulk_import_template.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_xlsx", type="primary")
+            except Exception as e:
+                st.warning(f"Excel template error: {e}. CSV fallback still available below.")
+
             sample_csv = "name,qty,price\nRosemary Oil,2.5,45.00\nMenthol Crystal,1.0,80.00\n100mL Amber Bottle,200,0.35\n"
-            st.download_button("📥 Download Sample CSV", data=sample_csv, file_name="bulk_import_template.csv", mime="text/csv", key="dl_template")
-            uploaded = st.file_uploader("Upload CSV", type=['csv'], key="bulk_upload")
+            st.download_button("📥 Download Plain CSV Template (fallback)", data=sample_csv, file_name="bulk_import_template.csv", mime="text/csv", key="dl_template")
+
+            st.markdown("---")
+            st.markdown("**Upload your filled file (Excel or CSV)**")
+            uploaded = st.file_uploader("Upload", type=['csv', 'xlsx'], key="bulk_upload")
             if uploaded is not None:
                 try:
-                    csv_df = pd.read_csv(uploaded)
+                    if uploaded.name.endswith('.xlsx'):
+                        csv_df = pd.read_excel(uploaded, sheet_name=0)
+                    else:
+                        csv_df = pd.read_csv(uploaded)
                     required = ['name', 'qty', 'price']
                     missing = [c for c in required if c not in csv_df.columns]
                     if missing:
                         st.error(f"❌ Missing columns: {', '.join(missing)}")
                     else:
-                        st.session_state.bulk_preview_df = csv_df[required]
-                        st.success(f"Loaded {len(csv_df)} rows. Scroll down to preview.")
+                        # Drop empty rows
+                        csv_df = csv_df.dropna(subset=['name', 'qty'])
+                        csv_df = csv_df[csv_df['name'].astype(str).str.strip() != ""]
+                        if csv_df.empty:
+                            st.warning("No valid rows found in the file.")
+                        else:
+                            st.session_state.bulk_preview_df = csv_df[required].reset_index(drop=True)
+                            st.success(f"Loaded {len(csv_df)} rows. Scroll down to preview.")
                 except Exception as e:
                     st.error(f"Error: {e}")
 
