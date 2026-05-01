@@ -2707,7 +2707,7 @@ if check_password():
             st.markdown("#### Export Full Database Snapshot")
             st.write("Downloads a single JSON file containing every record from every table. Keep this safe.")
 
-            tables_to_backup = ['inventory', 'packaging', 'formulas', 'cogs_records', 'finished_products', 'sales_records', 'production_logs', 'consignment', 'clients', 'portfolios']
+            tables_to_backup = ['inventory', 'packaging', 'formulas', 'cogs_records', 'finished_products', 'sales_records', 'production_records', 'consignment_records', 'clients', 'portfolios']
 
             if st.button("📥 Generate Backup File", type="primary", key="gen_backup"):
                 try:
