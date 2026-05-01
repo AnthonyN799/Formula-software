@@ -435,7 +435,7 @@ if check_password():
             "📊 Finance & Sales": ["Sales & Revenue", "Analytics", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
             "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products", "Purchase Requisition"],
             "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"],
-            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder", "Price Manager", "Bulk Import"]
+            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder", "Price Manager", "Bulk Import", "Backup & Restore"]
         }
     else:
         MODULES = {
@@ -2694,3 +2694,111 @@ if check_password():
             if cb2.button("❌ Cancel / Reset", key="cancel_bulk"):
                 del st.session_state.bulk_preview_df
                 st.rerun()
+
+    # --- BACKUP & RESTORE ---
+    elif menu == "Backup & Restore":
+        st.title("Backup & Restore")
+        st.markdown("<p style='opacity: 0.6;'>Export a complete snapshot of all data, or restore from a previous backup.</p>", unsafe_allow_html=True)
+
+        tab_export, tab_restore = st.tabs(["📤 Export Backup", "📥 Restore from Backup"])
+
+        # === EXPORT TAB ===
+        with tab_export:
+            st.markdown("#### Export Full Database Snapshot")
+            st.write("Downloads a single JSON file containing every record from every table. Keep this safe.")
+
+            tables_to_backup = ['inventory', 'packaging', 'formulas', 'cogs_records', 'finished_products', 'sales_records', 'production_logs', 'consignment', 'clients', 'portfolios']
+
+            if st.button("📥 Generate Backup File", type="primary", key="gen_backup"):
+                try:
+                    import json as _json
+                    backup_data = {"_meta": {"export_date": datetime.now().isoformat(), "version": "1.0", "table_count": 0, "record_count": 0}}
+                    total_records = 0
+                    progress = st.progress(0, text="Preparing backup...")
+                    for i, table in enumerate(tables_to_backup):
+                        try:
+                            resp = supabase.table(table).select("*").execute()
+                            rows = resp.data if resp.data else []
+                            backup_data[table] = rows
+                            total_records += len(rows)
+                            progress.progress((i + 1) / len(tables_to_backup), text=f"Exporting {table}... ({len(rows)} records)")
+                        except Exception as e:
+                            backup_data[table] = []
+                            st.warning(f"Could not export {table}: {e}")
+                    backup_data["_meta"]["table_count"] = len([k for k in backup_data if not k.startswith("_")])
+                    backup_data["_meta"]["record_count"] = total_records
+                    progress.empty()
+                    json_str = _json.dumps(backup_data, indent=2, default=str)
+                    filename = f"therapeutic_oils_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    st.success(f"✅ Backup ready! {total_records} total records across {backup_data['_meta']['table_count']} tables.")
+                    st.download_button("⬇️ Download Backup JSON", data=json_str, file_name=filename, mime="application/json", type="primary")
+                    with st.expander("📋 Backup Summary"):
+                        summary_rows = [{"Table": k, "Records": len(v) if isinstance(v, list) else 0} for k, v in backup_data.items() if not k.startswith("_")]
+                        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+                except Exception as e:
+                    st.error(f"Backup failed: {e}")
+
+        # === RESTORE TAB ===
+        with tab_restore:
+            st.markdown("#### Restore from Backup File")
+            st.error("⚠️ **DANGER ZONE** — Restoring will OVERWRITE existing data in matched tables. Always export a current backup first.")
+
+            uploaded_backup = st.file_uploader("Upload Backup JSON", type=['json'], key="restore_upload")
+            if uploaded_backup is not None:
+                try:
+                    import json as _json
+                    backup_data = _json.loads(uploaded_backup.read().decode('utf-8'))
+                    meta = backup_data.get('_meta', {})
+                    st.markdown("##### Backup File Info")
+                    info_cols = st.columns(3)
+                    info_cols[0].metric("Export Date", str(meta.get('export_date', 'Unknown'))[:10])
+                    info_cols[1].metric("Tables", meta.get('table_count', '?'))
+                    info_cols[2].metric("Total Records", meta.get('record_count', '?'))
+
+                    available_tables = [k for k in backup_data.keys() if not k.startswith("_") and isinstance(backup_data[k], list)]
+                    st.markdown("##### Select Tables to Restore")
+                    st.write("Each restore will WIPE the current contents of the table and replace it with the backup data.")
+                    restore_choices = {}
+                    for tbl in available_tables:
+                        count = len(backup_data[tbl])
+                        restore_choices[tbl] = st.checkbox(f"{tbl} ({count} records)", value=False, key=f"restore_{tbl}")
+
+                    selected = [t for t, v in restore_choices.items() if v]
+                    if selected:
+                        st.markdown("##### Confirm Restore")
+                        st.warning(f"You are about to OVERWRITE these tables: **{', '.join(selected)}**")
+                        confirm_text = st.text_input("Type 'RESTORE' (uppercase) to confirm", key="restore_confirm_text")
+                        confirm_pass = st.text_input("Authorization Passcode", type="password", key="restore_confirm_pass")
+                        if st.button("🔥 Execute Restore", type="primary", disabled=(confirm_text != "RESTORE" or confirm_pass != "lab2026")):
+                            try:
+                                progress = st.progress(0, text="Restoring...")
+                                restore_errors = []
+                                for i, tbl in enumerate(selected):
+                                    try:
+                                        # Wipe existing
+                                        existing = supabase.table(tbl).select("id").execute()
+                                        if existing.data:
+                                            for row in existing.data:
+                                                supabase.table(tbl).delete().eq('id', row['id']).execute()
+                                        # Insert backup rows
+                                        for record in backup_data[tbl]:
+                                            # Strip created_at if present (let DB regenerate or keep as-is)
+                                            record_clean = {k: v for k, v in record.items() if k != 'id'}  # let DB regenerate IDs
+                                            supabase.table(tbl).insert(record_clean).execute()
+                                        progress.progress((i + 1) / len(selected), text=f"Restored {tbl}")
+                                    except Exception as e:
+                                        restore_errors.append(f"{tbl}: {e}")
+                                progress.empty()
+                                if restore_errors:
+                                    st.error("Some tables had errors:")
+                                    for err in restore_errors:
+                                        st.write(f"- {err}")
+                                else:
+                                    st.toast(f"✅ Restored {len(selected)} table(s) successfully!", icon="✅")
+                                    clear_cache()
+                                    time.sleep(2)
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Restore failed: {e}")
+                except Exception as e:
+                    st.error(f"Could not read backup file: {e}")
