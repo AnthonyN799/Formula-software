@@ -1,0 +1,27 @@
+name: Weekly Database Backup Email
+on:
+  schedule:
+    # Every Monday at 06:00 UTC = 08:00 AM Beirut (EET)
+    - cron: '0 6 * * 1'
+  workflow_dispatch: # Manual trigger button for testing
+jobs:
+  backup-and-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install supabase
+      - name: Run Backup Script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPA_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPA_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python weekly_backup.py
