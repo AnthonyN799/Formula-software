@@ -536,7 +536,7 @@ if check_password():
                         orig = display_sales.loc[index]
                         if row['status'] != orig['status']:
                             supabase.table('sales_records').update({'status': row['status']}).eq('id', int(row['id'])).execute()
-                    st.success("Ledger payments synchronized!")
+                    st.toast("Ledger payments synchronized!", icon="✅")
                     clear_cache(); st.rerun()
             selected_sales = edited_sales[edited_sales['🔍'] == True]
             if not selected_sales.empty:
@@ -585,8 +585,8 @@ if check_password():
                                 if disc_parts: note_text = (note_text + " | " if note_text else "") + ", ".join(disc_parts)
                                 if note_text: update_data["notes"] = note_text
                                 supabase.table('sales_records').update(update_data).eq('id', int(erow['id'])).execute()
-                            st.success("Order updated with new pricing!")
-                            time.sleep(1)
+                            st.toast("Order updated with new pricing!", icon="✅")
+                            time.sleep(0.5)
                             clear_cache(); st.rerun()
                     col_pdf, col_rev = st.columns(2)
                     with col_pdf:
@@ -605,8 +605,8 @@ if check_password():
                                         new_stock = current_stock + int(sale_item['quantity'])
                                         supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', fp_id).execute()
                                     supabase.table('sales_records').delete().eq('id', int(sel_id)).execute()
-                                    st.success("Transaction reversed! Financials updated and FP stock restored.")
-                                    time.sleep(1)
+                                    st.toast("Transaction reversed! Financials updated and FP stock restored.", icon="✅")
+                                    time.sleep(0.5)
                                     clear_cache(); st.rerun()
                                 else:
                                     st.error("Incorrect passcode.")
@@ -734,8 +734,8 @@ if check_password():
                                 if clients_df.empty or client_name not in clients_df['client_name'].values:
                                     supabase.table('clients').insert({"client_name": client_name, "channel": client_channel}).execute()
                             st.session_state.order_lines = [{"product": fp_opts[0], "qty": 1, "price": None}]
-                            st.success(f"✅ Order {order_ref} logged! All stock deducted.")
-                            time.sleep(1.5)
+                            st.toast(f"✅ Order {order_ref} logged! All stock deducted.", icon="✅")
+                            time.sleep(0.5)
                             clear_cache(); st.rerun()
 
     # --- 1.1 CLIENTS DATABASE ---
@@ -758,7 +758,7 @@ if check_password():
                         orig = clients_df.loc[idx]
                         if any(row[c] != orig[c] for c in ['client_name', 'business_name', 'phone', 'email', 'channel']):
                             supabase.table('clients').update({"client_name": row['client_name'], "business_name": row['business_name'], "phone": row['phone'], "email": row['email'], "channel": row['channel']}).eq('id', int(orig['id'])).execute()
-                    st.success("Client records synchronized!")
+                    st.toast("Client records synchronized!", icon="✅")
                     clear_cache(); st.rerun()
             selected_clients = edited_clients[edited_clients['🔍'] == True]
             if not selected_clients.empty:
@@ -810,8 +810,8 @@ if check_password():
                 new_notes = ac6.text_input("Notes")
                 if st.form_submit_button("Register Client", type="primary") and new_name:
                     supabase.table('clients').insert({"client_name": new_name, "business_name": new_biz, "phone": new_phone, "email": new_email, "address": new_addr, "channel": new_channel, "notes": new_notes}).execute()
-                    st.success(f"Client '{new_name}' registered!")
-                    time.sleep(1); clear_cache(); st.rerun()
+                    st.toast(f"Client '{new_name}' registered!", icon="✅")
+                    time.sleep(0.5); clear_cache(); st.rerun()
 
     # --- 1.5 CONSIGNMENT TRACKER ---
     elif menu == "Consignment Tracker":
@@ -879,10 +879,10 @@ if check_password():
                                 net_profit = float(gross_rev - cogs)
                                 gm = float(net_profit / gross_rev) if gross_rev > 0 else 0.0
                                 supabase.table('sales_records').insert({"order_description": str(cons_item['product_name']), "quantity": int(units_sold), "unit_price": float(cons_item['wholesale_price']), "gross_revenue": float(gross_rev), "cogs": float(cogs), "net_profit": float(net_profit), "account": str(cons_item['partner_name']), "order_ref_number": str(ref_num), "sale_date": datetime.today().strftime('%Y-%m-%d'), "gm": float(gm), "channel": "Consignment Payout", "status": payment_status}).execute()
-                                st.success(f"Successfully converted {units_sold} consigned units into Sales Revenue!")
-                                time.sleep(1.5); clear_cache(); st.rerun()
+                                st.toast(f"Successfully converted {units_sold} consigned units into Sales Revenue!", icon="✅")
+                                time.sleep(0.5); clear_cache(); st.rerun()
                     else:
-                        st.success("✅ All units from this consignment line have been sold and logged.")
+                        st.toast("✅ All units from this consignment line have been sold and logged.", icon="✅")
                 if st.session_state.get("user_role") == "admin":
                     st.write("---")
                     st.markdown("**⚠️ Admin: Reset Consignment**")
@@ -955,8 +955,8 @@ if check_password():
                         else:
                             supabase.table('finished_products').update({'stock_quantity': curr_stock - qty}).eq('id', int(fg_match['id'])).execute()
                             supabase.table('consignment_records').insert({"partner_name": str(partner), "order_ref_number": str(ref), "product_name": str(prod), "qty_consigned": int(qty), "unit_cogs": float(def_cogs), "retail_price": float(retail_p), "wholesale_price": float(wholesale_p)}).execute()
-                            st.success("Consignment logged securely!")
-                            time.sleep(1.5); clear_cache(); st.rerun()
+                            st.toast("Consignment logged securely!", icon="✅")
+                            time.sleep(0.5); clear_cache(); st.rerun()
 
     # --- 2. FINANCIAL OVERVIEW ---
     elif menu == "Financial Overview":
@@ -1197,7 +1197,15 @@ if check_password():
                     st.markdown(f"#### {mat['trade_name']}")
                     # Calculate Avg and Last cost from lots
                     lots_for_calc = mat.get('lots', [])
-                    if isinstance(lots_for_calc, float) or (isinstance(lots_for_calc, str) and lots_for_calc in ["", "nan", "[]"]):
+                    if isinstance(lots_for_calc, str):
+                        try:
+                            import json as _json
+                            lots_for_calc = _json.loads(lots_for_calc) if lots_for_calc.strip() not in ["", "nan", "[]"] else []
+                        except Exception:
+                            lots_for_calc = []
+                    elif isinstance(lots_for_calc, float) or lots_for_calc is None:
+                        lots_for_calc = []
+                    elif not isinstance(lots_for_calc, list):
                         lots_for_calc = []
                     avg_cost = float(mat['price_per_kg'])
                     last_cost = float(mat['price_per_kg'])
@@ -1224,8 +1232,17 @@ if check_password():
                     st.write("---")
                     st.markdown("#### 📦 Lot Tracking Ledgers")
                     lots = mat.get('lots', [])
-                    if isinstance(lots, float): lots = []
-                    elif isinstance(lots, str) and lots in ["", "nan", "[]"]: lots = []
+                    # Robust parsing: handle list, JSON string, NaN, or empty
+                    if isinstance(lots, str):
+                        try:
+                            import json as _json
+                            lots = _json.loads(lots) if lots.strip() not in ["", "nan", "[]"] else []
+                        except Exception:
+                            lots = []
+                    elif isinstance(lots, float) or lots is None:
+                        lots = []
+                    elif not isinstance(lots, list):
+                        lots = []
                     if not lots:
                         today_str = datetime.today().strftime('%Y-%m-%d')
                         exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
@@ -1240,7 +1257,14 @@ if check_password():
                         ed_lots = st.data_editor(lots_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Current": st.column_config.CheckboxColumn("Current Lot", default=False), "Mfg Date": st.column_config.TextColumn("Mfg Date (YYYY-MM-DD)"), "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"), "Exp Date": st.column_config.TextColumn("Exp Date (YYYY-MM-DD)"), "Qty (Kg)": st.column_config.NumberColumn("Qty (Kg)", format="%.3f"), "Price/Kg": st.column_config.NumberColumn("Price/Kg ($)", format="$%.2f", min_value=0.0)})
                         if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
                             current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
-                            if current_count > 1: st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
+                            existing_lot_count = len(lots) if lots else 0
+                            new_lot_count = len(ed_lots)
+                            # Safety check: warn if dropping lots
+                            if new_lot_count < existing_lot_count and not st.session_state.get(f"confirm_drop_{mat['id']}"):
+                                st.session_state[f"confirm_drop_{mat['id']}"] = True
+                                st.error(f"⚠️ DATA LOSS WARNING: You're about to save {new_lot_count} lot(s) but the current record has {existing_lot_count} lot(s). Click 'Save' AGAIN to confirm dropping {existing_lot_count - new_lot_count} lot(s).")
+                            elif current_count > 1:
+                                st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
                             else:
                                 new_lots_json = []
                                 for _, lrow in ed_lots.iterrows():
@@ -1260,10 +1284,12 @@ if check_password():
                                     sorted_new = sorted(new_lots_json, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
                                     if sorted_new: new_last = float(sorted_new[0].get('Price/Kg', mat['price_per_kg']) or mat['price_per_kg'])
                                 supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": new_total_kg, "price_per_kg": new_last}).eq('id', int(mat['id'])).execute()
-                                st.success(f"Saved! Avg: ${new_avg:.2f}/Kg | Last: ${new_last:.2f}/Kg")
+                                if f"confirm_drop_{mat['id']}" in st.session_state:
+                                    del st.session_state[f"confirm_drop_{mat['id']}"]
+                                st.toast(f"Saved! Avg: ${new_avg:.2f}/Kg | Last: ${new_last:.2f}/Kg", icon="✅")
                                 if "cogs_synced_this_session" in st.session_state:
                                     del st.session_state.cogs_synced_this_session
-                                time.sleep(1.5); clear_cache(); st.rerun()
+                                time.sleep(0.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
                         if st.button("Erase Record") and del_pass == "lab2026":
@@ -1321,7 +1347,13 @@ if check_password():
                         ed_lots = st.data_editor(lots_df, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Current": st.column_config.CheckboxColumn("Current Lot", default=False), "Rcv Date": st.column_config.TextColumn("Rcv Date (YYYY-MM-DD)"), "Qty (Units)": st.column_config.NumberColumn("Qty (Units)", step=1)})
                         if st.form_submit_button("💾 Save Lots & Update Total Stock", type="primary"):
                             current_count = ed_lots['Current'].sum() if 'Current' in ed_lots.columns else 0
-                            if current_count > 1: st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
+                            existing_lot_count = len(lots) if lots else 0
+                            new_lot_count = len(ed_lots)
+                            if new_lot_count < existing_lot_count and not st.session_state.get(f"pk_confirm_drop_{p_mat['id']}"):
+                                st.session_state[f"pk_confirm_drop_{p_mat['id']}"] = True
+                                st.error(f"⚠️ DATA LOSS WARNING: You're about to save {new_lot_count} lot(s) but the current record has {existing_lot_count} lot(s). Click 'Save' AGAIN to confirm dropping {existing_lot_count - new_lot_count} lot(s).")
+                            elif current_count > 1:
+                                st.error("⚠️ Only one lot can be marked as the 'Current' lot.")
                             else:
                                 new_lots_json = []
                                 for _, lrow in ed_lots.iterrows():
@@ -1334,8 +1366,10 @@ if check_password():
                                     new_lots_json.append(clean_lot)
                                 new_total_qty = int(ed_lots['Qty (Units)'].sum()) if 'Qty (Units)' in ed_lots.columns else 0
                                 supabase.table('packaging').update({"lots": new_lots_json, "remaining_quantity": new_total_qty}).eq('id', int(p_mat['id'])).execute()
-                                st.success("Lots updated successfully! Total Stock recalculated.")
-                                time.sleep(1.5); clear_cache(); st.rerun()
+                                if f"pk_confirm_drop_{p_mat['id']}" in st.session_state:
+                                    del st.session_state[f"pk_confirm_drop_{p_mat['id']}"]
+                                st.toast("Lots updated successfully! Total Stock recalculated.", icon="✅")
+                                time.sleep(0.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
                         if st.button("Erase Record") and st.text_input("Authorization", type="password", key="dpp") == "lab2026":
                             supabase.table('packaging').delete().eq('id', int(p_mat['id'])).execute(); clear_cache(); st.rerun()
@@ -1371,7 +1405,7 @@ if check_password():
                         orig = finished_goods.loc[idx]
                         if row['stock_quantity'] != orig['stock_quantity']:
                             supabase.table('finished_products').update({"stock_quantity": row['stock_quantity']}).eq('id', int(orig['id'])).execute()
-                    st.success("Finished goods synced!")
+                    st.toast("Finished goods synced!", icon="✅")
                     clear_cache(); st.rerun()
             selected_fp = edited_fp[edited_fp['🔍'] == True]
             if not selected_fp.empty:
@@ -1649,13 +1683,13 @@ if check_password():
             st.metric("Total Formula Cost / Kg", f"${total_cost_kg:,.2f}")
             total_perc = edit_df["%"].sum() if "%" in edit_df.columns else 0.0
             if round(total_perc, 2) == 100.0:
-                st.success("✅ Formula is balanced (100%)")
+                st.toast("✅ Formula is balanced (100%)", icon="✅")
                 btn_label = "💾 Update Existing Edition" if "edit_formula_id" in st.session_state else "Commit Formula to Vault"
                 if st.button(btn_label, type="primary", use_container_width=True) and f_name:
                     recipe_json = edit_df.to_dict(orient='records')
                     if "edit_formula_id" in st.session_state:
                         supabase.table("formulas").update({"formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).eq('id', st.session_state.edit_formula_id).execute()
-                        st.success("Updated Successfully!")
+                        st.toast("Updated Successfully!", icon="✅")
                     else:
                         if "base_fr_code" in st.session_state:
                             base_code = st.session_state.base_fr_code.split('-')[0]
@@ -1669,7 +1703,7 @@ if check_password():
                                 next_id = root_codes.max() + 1 if not root_codes.empty else 1
                                 fr_c = f"FR{next_id:05d}"
                         supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).execute()
-                        st.success("Saved to Library!")
+                        st.toast("Saved to Library!", icon="✅")
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                     for key in ["draft_name", "base_fr_code", "draft_procedure", "edit_formula_id", "edit_fr_code"]:
                         if key in st.session_state: del st.session_state[key]
@@ -1901,7 +1935,7 @@ if check_password():
                 if sc2.button("Commit Profile", type="primary", use_container_width=True, key="build_save_btn"):
                     if cogs_name:
                         supabase.table('cogs_records').insert({"product_name": cogs_name, "formula_name": n_only if sel_form else "None", "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom", "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl, "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct, "version": 1, "is_active": True}).execute()
-                        st.success(f"Saved profile: {cogs_name}")
+                        st.toast(f"Saved profile: {cogs_name}", icon="✅")
                         clear_cache(); st.rerun()
                     else:
                         st.error("Please enter a Product Name before saving.")
@@ -1930,7 +1964,7 @@ if check_password():
                                 new_cogs = float(orig['total_cogs'])
                                 new_margin = ((new_retail - new_cogs) / new_retail * 100) if new_retail > 0 else 0.0
                                 supabase.table('cogs_records').update({"product_name": row['product_name'], "target_retail": new_retail, "gross_margin_pct": new_margin}).eq('id', int(orig['id'])).execute()
-                        st.success("COGS profiles synced!")
+                        st.toast("COGS profiles synced!", icon="✅")
                         clear_cache(); st.rerun()
                 selected_cogs = edited_cogs[edited_cogs['🔍'] == True]
                 if not selected_cogs.empty:
@@ -1986,8 +2020,8 @@ if check_password():
                                     recalc_lbl = float(cogs_item.get('label_cost', 0) or 0)
                                     supabase.table('cogs_records').update({"is_active": False}).eq('id', int(cogs_item['id'])).execute()
                                     supabase.table('cogs_records').insert({"product_name": cogs_item['product_name'], "formula_name": cogs_item['formula_name'], "fill_weight_g": float(cogs_item['fill_weight_g']), "primary_packaging": cogs_item['primary_packaging'], "bulk_cost": recalc_bulk, "packaging_cost": recalc_pack, "mfg_cost": recalc_mfg, "label_cost": recalc_lbl, "total_cogs": recalc_total, "target_retail": retail, "gross_margin_pct": new_margin, "version": int(cogs_item.get('version', 1) or 1) + 1, "is_active": True, "parent_id": int(cogs_item['id'])}).execute()
-                                    st.success("New COGS version created! Old version archived.")
-                                    time.sleep(1); clear_cache(); st.rerun()
+                                    st.toast("New COGS version created! Old version archived.", icon="✅")
+                                    time.sleep(0.5); clear_cache(); st.rerun()
                             else:
                                 st.info("COGS is already up to date with current RM prices.")
 
@@ -2126,8 +2160,8 @@ if check_password():
                                         updated_prods = list(dict.fromkeys([final_name if p == old_name else p for p in pf_prods]))
                                         supabase.table('portfolios').update({"products": updated_prods}).eq('id', int(pf_row['id'])).execute()
                                         changes += 1
-                            st.success(f"Renamed '{old_name}' → '{final_name}' across {changes} records.")
-                            time.sleep(1.5); clear_cache(); st.rerun()
+                            st.toast(f"Renamed '{old_name}' → '{final_name}' across {changes} records.", icon="✅")
+                            time.sleep(0.5); clear_cache(); st.rerun()
             else:
                 st.info("No product names found in the system.")
 
@@ -2181,8 +2215,8 @@ if check_password():
                                     for _, drow in dupes.iterrows():
                                         supabase.table('clients').delete().eq('id', int(drow['id'])).execute()
                                         changes += 1
-                            st.success(f"Renamed '{old_client}' → '{final_client}' across {changes} records.")
-                            time.sleep(1.5); clear_cache(); st.rerun()
+                            st.toast(f"Renamed '{old_client}' → '{final_client}' across {changes} records.", icon="✅")
+                            time.sleep(0.5); clear_cache(); st.rerun()
             else:
                 st.info("No client names found in the system.")
 
@@ -2218,8 +2252,8 @@ if check_password():
                             st.error("Select at least 2 products to group.")
                         else:
                             supabase.table('portfolios').insert({"portfolio_name": pf_name.strip(), "products": list(dict.fromkeys(pf_products)), "description": pf_desc}).execute()
-                            st.success(f"Portfolio '{pf_name}' created with {len(pf_products)} products!")
-                            time.sleep(1); clear_cache(); st.rerun()
+                            st.toast(f"Portfolio '{pf_name}' created with {len(pf_products)} products!", icon="✅")
+                            time.sleep(0.5); clear_cache(); st.rerun()
 
         # --- View Existing Portfolios ---
         st.write("---")
@@ -2251,7 +2285,7 @@ if check_password():
                         ec1, ec2 = st.columns(2)
                         if ec1.button("Update Products", key=f"upd_pf_{pf['id']}"):
                             supabase.table('portfolios').update({"products": list(dict.fromkeys(edit_products))}).eq('id', int(pf['id'])).execute()
-                            st.success("Portfolio updated!")
+                            st.toast("Portfolio updated!", icon="✅")
                             clear_cache(); st.rerun()
                         if ec2.button("Delete Portfolio", key=f"del_pf_{pf['id']}"):
                             supabase.table('portfolios').delete().eq('id', int(pf['id'])).execute()
@@ -2349,7 +2383,7 @@ if check_password():
             if issues:
                 st.warning(f"⚠️ {len(issues)} product(s) have pricing discrepancies. Review the flags above.")
             else:
-                st.success("✅ All pricing is consistent across the system.")
+                st.toast("✅ All pricing is consistent across the system.", icon="✅")
 
             # --- 2. Bulk Price Editor ---
             st.write("---")
@@ -2385,7 +2419,7 @@ if check_password():
                                 supabase.table('cogs_records').update({"target_retail": new_retail, "gross_margin_pct": new_margin}).eq('id', int(cogs_match.iloc[0]['id'])).execute()
                         changes += 1
                 if changes > 0:
-                    st.success(f"Updated {changes} product price(s)!")
+                    st.toast(f"Updated {changes} product price(s)!", icon="✅")
                     clear_cache(); st.rerun()
                 else:
                     st.info("No prices were changed.")
@@ -2544,7 +2578,7 @@ if check_password():
                             st.warning("No valid rows found in the file.")
                         else:
                             st.session_state.bulk_preview_df = csv_df[required].reset_index(drop=True)
-                            st.success(f"Loaded {len(csv_df)} rows. Scroll down to preview.")
+                            st.toast(f"Loaded {len(csv_df)} rows. Scroll down to preview.", icon="✅")
                 except Exception as e:
                     st.error(f"Error: {e}")
 
@@ -2652,7 +2686,7 @@ if check_password():
                             new_total = int(pm['remaining_quantity']) + int(qty)
                             supabase.table('packaging').update({"lots": lots, "remaining_quantity": new_total, "cost_per_unit": price}).eq('id', int(pm['id'])).execute()
                         imports_done += 1
-                st.success(f"✅ Imported {imports_done} row(s). Created {new_created} new material(s).")
+                st.toast(f"✅ Imported {imports_done} row(s). Created {new_created} new material(s).", icon="✅")
                 if "cogs_synced_this_session" in st.session_state:
                     del st.session_state.cogs_synced_this_session
                 del st.session_state.bulk_preview_df
