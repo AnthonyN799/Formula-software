@@ -64,6 +64,35 @@ def fetch_vault_data(table_name, sort_column=None):
 def clear_cache():
     _fetch_cached.clear()
 
+def log_action(action, table_name=None, record_id=None, record_label=None, before_data=None, after_data=None):
+    """Silent audit trail logger. Never blocks the main app on failure."""
+    try:
+        username = st.session_state.get("user_name", "unknown")
+        # Convert any non-JSON-safe values
+        def _clean(d):
+            if d is None: return None
+            if isinstance(d, dict):
+                clean = {}
+                for k, v in d.items():
+                    if pd.isna(v): clean[k] = None
+                    elif isinstance(v, bool): clean[k] = bool(v)
+                    elif hasattr(v, 'item'): clean[k] = v.item()
+                    elif isinstance(v, (list, dict)): clean[k] = v
+                    else: clean[k] = v if isinstance(v, (str, int, float)) else str(v)
+                return clean
+            return d
+        supabase.table('audit_log').insert({
+            "username": str(username),
+            "action": str(action),
+            "table_name": str(table_name) if table_name else None,
+            "record_id": int(record_id) if record_id is not None else None,
+            "record_label": str(record_label) if record_label else None,
+            "before_data": _clean(before_data),
+            "after_data": _clean(after_data)
+        }).execute()
+    except Exception:
+        pass  # never break the app for logging issues
+
 def load_tables(*names):
     table_map = {
         'inventory': ('inventory', 'rm_code'),
@@ -339,6 +368,9 @@ def check_password():
                 st.session_state["authenticated"] = True
                 st.session_state["user_role"] = matched["role"]
                 st.session_state["user_name"] = username
+                try:
+                    supabase.table('audit_log').insert({"username": str(username), "action": "LOGIN", "table_name": None, "record_id": None, "record_label": None, "before_data": None, "after_data": None}).execute()
+                except Exception: pass
                 st.rerun()
             else: st.error("Incorrect username or passcode.")
     return False
@@ -435,7 +467,7 @@ if check_password():
             "📊 Finance & Sales": ["Sales & Revenue", "Analytics", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
             "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products", "Purchase Requisition"],
             "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"],
-            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder", "Price Manager", "Bulk Import", "Backup & Restore"]
+            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder", "Price Manager", "Bulk Import", "Backup & Restore", "Activity Log"]
         }
     else:
         MODULES = {
@@ -1284,6 +1316,7 @@ if check_password():
                                     sorted_new = sorted(new_lots_json, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
                                     if sorted_new: new_last = float(sorted_new[0].get('Price/Kg', mat['price_per_kg']) or mat['price_per_kg'])
                                 supabase.table('inventory').update({"lots": new_lots_json, "quantity_kg": new_total_kg, "price_per_kg": new_last}).eq('id', int(mat['id'])).execute()
+                                log_action("UPDATE_LOTS", "inventory", int(mat['id']), str(mat['trade_name']), before_data={"lots": lots, "quantity_kg": float(mat['quantity_kg']), "price_per_kg": float(mat['price_per_kg'])}, after_data={"lots": new_lots_json, "quantity_kg": float(new_total_kg), "price_per_kg": float(new_last)})
                                 if f"confirm_drop_{mat['id']}" in st.session_state:
                                     del st.session_state[f"confirm_drop_{mat['id']}"]
                                 st.toast(f"Saved! Avg: ${new_avg:.2f}/Kg | Last: ${new_last:.2f}/Kg", icon="✅")
@@ -1293,6 +1326,7 @@ if check_password():
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
                         if st.button("Erase Record") and del_pass == "lab2026":
+                            log_action("DELETE", "inventory", int(mat['id']), str(mat['trade_name']), before_data=mat.to_dict() if hasattr(mat, 'to_dict') else dict(mat))
                             supabase.table('inventory').delete().eq('id', int(mat['id'])).execute(); clear_cache(); st.rerun()
         st.write("---")
         st.info("💡 Need to add multiple materials at once? Go to **🛠️ Admin Tools → Bulk Import** to upload a CSV.")
@@ -1366,12 +1400,14 @@ if check_password():
                                     new_lots_json.append(clean_lot)
                                 new_total_qty = int(ed_lots['Qty (Units)'].sum()) if 'Qty (Units)' in ed_lots.columns else 0
                                 supabase.table('packaging').update({"lots": new_lots_json, "remaining_quantity": new_total_qty}).eq('id', int(p_mat['id'])).execute()
+                                log_action("UPDATE_LOTS", "packaging", int(p_mat['id']), str(p_mat['material_name']), before_data={"lots": lots, "remaining_quantity": int(p_mat['remaining_quantity'])}, after_data={"lots": new_lots_json, "remaining_quantity": int(new_total_qty)})
                                 if f"pk_confirm_drop_{p_mat['id']}" in st.session_state:
                                     del st.session_state[f"pk_confirm_drop_{p_mat['id']}"]
                                 st.toast("Lots updated successfully! Total Stock recalculated.", icon="✅")
                                 time.sleep(0.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
                         if st.button("Erase Record") and st.text_input("Authorization", type="password", key="dpp") == "lab2026":
+                            log_action("DELETE", "packaging", int(p_mat['id']), str(p_mat['material_name']), before_data=p_mat.to_dict() if hasattr(p_mat, 'to_dict') else dict(p_mat))
                             supabase.table('packaging').delete().eq('id', int(p_mat['id'])).execute(); clear_cache(); st.rerun()
         st.write("---")
         st.info("💡 Need to add multiple packaging items at once? Go to **🛠️ Admin Tools → Bulk Import** to upload a CSV.")
@@ -1420,6 +1456,7 @@ if check_password():
                     c3.write(f"**Profit Margin:** {margin:.1f}%")
                     with st.expander("System Actions"):
                         if st.button("Erase Record") and st.text_input("Authorization Passcode", type="password", key="dfpp") == "lab2026":
+                            log_action("DELETE", "finished_products", int(fp_item['id']), str(fp_item.get('product_name', '')), before_data=fp_item.to_dict() if hasattr(fp_item, 'to_dict') else dict(fp_item))
                             supabase.table('finished_products').delete().eq('id', int(fp_item['id'])).execute(); clear_cache(); st.rerun()
         else:
             st.info("No finished products currently in stock.")
@@ -1630,6 +1667,7 @@ if check_password():
                             with st.expander("🗑️ Erase"):
                                 del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
                                 if st.button("Permanently Delete", use_container_width=True) and del_f_pass == "lab2026":
+                                    log_action("DELETE", "formulas", int(sel_f['id']), str(sel_f.get('formula_name', '')), before_data=sel_f.to_dict() if hasattr(sel_f, 'to_dict') else dict(sel_f))
                                     supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); clear_cache(); st.rerun()
         else:
             st.info("No formulas architected yet.")
@@ -2047,6 +2085,7 @@ if check_password():
                             del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
                             if st.button("Erase COGS Profile"):
                                 if del_cogs_pass == "lab2026":
+                                    log_action("DELETE", "cogs_records", int(cogs_item['id']), str(cogs_item.get('product_name', '')), before_data=cogs_item.to_dict() if hasattr(cogs_item, 'to_dict') else dict(cogs_item))
                                     supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); clear_cache(); st.rerun()
                                 else: st.error("Incorrect passcode.")
             else: st.info("No COGS profiles saved in the vault.")
@@ -2802,3 +2841,91 @@ if check_password():
                                 st.error(f"Restore failed: {e}")
                 except Exception as e:
                     st.error(f"Could not read backup file: {e}")
+
+    # --- ACTIVITY LOG ---
+    elif menu == "Activity Log":
+        st.title("Activity Log")
+        st.markdown("<p style='opacity: 0.6;'>Complete audit trail of all actions in the system. Filter by user, table, action type, or date range.</p>", unsafe_allow_html=True)
+
+        try:
+            # Fetch latest 500 entries (ordered DESC by timestamp)
+            audit_resp = supabase.table('audit_log').select('*').order('timestamp', desc=True).limit(500).execute()
+            audit_df = pd.DataFrame(audit_resp.data) if audit_resp.data else pd.DataFrame()
+
+            if audit_df.empty:
+                st.info("No activity logged yet. As you use the system, actions will appear here.")
+            else:
+                # Convert timestamp
+                audit_df['timestamp'] = pd.to_datetime(audit_df['timestamp'], errors='coerce')
+                audit_df['Date'] = audit_df['timestamp'].dt.strftime('%Y-%m-%d')
+                audit_df['Time'] = audit_df['timestamp'].dt.strftime('%H:%M:%S')
+
+                # Filters
+                fc1, fc2, fc3, fc4 = st.columns(4)
+                user_options = ["All"] + sorted(audit_df['username'].dropna().unique().tolist())
+                sel_user = fc1.selectbox("User", user_options, key="filter_user")
+
+                table_options = ["All"] + sorted(audit_df['table_name'].dropna().unique().tolist())
+                sel_table = fc2.selectbox("Table", table_options, key="filter_table")
+
+                action_options = ["All"] + sorted(audit_df['action'].dropna().unique().tolist())
+                sel_action = fc3.selectbox("Action", action_options, key="filter_action")
+
+                # Date filter
+                min_date = audit_df['timestamp'].min().date() if not audit_df['timestamp'].isna().all() else datetime.today().date()
+                max_date = audit_df['timestamp'].max().date() if not audit_df['timestamp'].isna().all() else datetime.today().date()
+                date_range = fc4.date_input("Date Range", value=(min_date, max_date), key="filter_date")
+
+                # Apply filters
+                filtered = audit_df.copy()
+                if sel_user != "All":
+                    filtered = filtered[filtered['username'] == sel_user]
+                if sel_table != "All":
+                    filtered = filtered[filtered['table_name'] == sel_table]
+                if sel_action != "All":
+                    filtered = filtered[filtered['action'] == sel_action]
+                if isinstance(date_range, tuple) and len(date_range) == 2:
+                    filtered = filtered[(filtered['timestamp'].dt.date >= date_range[0]) & (filtered['timestamp'].dt.date <= date_range[1])]
+
+                # KPI summary
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Entries Shown", f"{len(filtered)}")
+                k2.metric("Active Users", f"{filtered['username'].nunique()}")
+                k3.metric("Tables Touched", f"{filtered['table_name'].dropna().nunique()}")
+                deletes = (filtered['action'] == 'DELETE').sum() if 'action' in filtered.columns else 0
+                k4.metric("Deletions", f"{deletes}")
+
+                # Main table
+                st.write("---")
+                display_cols = ['Date', 'Time', 'username', 'action', 'table_name', 'record_label']
+                display = filtered[display_cols].copy().rename(columns={
+                    'username': 'User', 'action': 'Action', 'table_name': 'Table', 'record_label': 'Record'
+                })
+                st.dataframe(display, use_container_width=True, hide_index=True)
+
+                # Detail viewer
+                st.write("---")
+                st.markdown("#### 🔍 Detail Viewer")
+                if not filtered.empty:
+                    selected_idx = st.selectbox(
+                        "Select an entry to inspect:",
+                        range(len(filtered)),
+                        format_func=lambda i: f"{filtered.iloc[i]['Date']} {filtered.iloc[i]['Time']} | {filtered.iloc[i]['username']} | {filtered.iloc[i]['action']} | {filtered.iloc[i].get('record_label', '')}",
+                        key="audit_detail_sel"
+                    )
+                    entry = filtered.iloc[selected_idx]
+                    dc1, dc2 = st.columns(2)
+                    with dc1:
+                        st.markdown("**Before**")
+                        if entry['before_data']:
+                            st.json(entry['before_data'])
+                        else:
+                            st.write("_No before-data captured_")
+                    with dc2:
+                        st.markdown("**After**")
+                        if entry['after_data']:
+                            st.json(entry['after_data'])
+                        else:
+                            st.write("_No after-data captured_")
+        except Exception as e:
+            st.error(f"Could not load activity log: {e}")
