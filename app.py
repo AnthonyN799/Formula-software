@@ -1618,8 +1618,11 @@ if check_password():
                                 b_no, l_no = f"B-{n_id:05d}", f"LOT-{datetime.now().strftime('%Y%m%d')}-{n_id:02d}"
                                 for d in calc_data:
                                     supabase.table('inventory').update({'quantity_kg': d['stock_kg'] - d['req_kg']}).eq('trade_name', d['Material']).execute()
-                                supabase.table('production_records').insert({"fr_code": sel_f['fr_code'], "formula_name": sel_f['formula_name'], "batch_number": b_no, "lot_number": l_no, "batch_size_g": b_size, "total_cost": total_cost}).execute()
-                                st.balloons(); clear_cache(); st.rerun()
+                                ins_prod = supabase.table('production_records').insert({"fr_code": sel_f['fr_code'], "formula_name": sel_f['formula_name'], "batch_number": b_no, "lot_number": l_no, "batch_size_g": b_size, "total_cost": total_cost}).execute()
+                                new_prod_id = ins_prod.data[0]['id'] if ins_prod.data else None
+                                log_action("EXECUTE_BATCH", "production_records", new_prod_id, f"{sel_f['formula_name']} ({b_no})", after_data={"fr_code": sel_f['fr_code'], "formula_name": sel_f['formula_name'], "batch_number": b_no, "lot_number": l_no, "batch_size_g": float(b_size), "total_cost": float(total_cost), "materials_consumed": [{"name": d['Material'], "qty_kg": float(d['req_kg'])} for d in calc_data]})
+                                st.toast(f"Batch {b_no} produced!", icon="🎉")
+                                st.balloons(); clear_cache(); time.sleep(0.5); st.rerun()
                             else: st.error("Cannot produce: Material Shortage detected.")
                     st.divider()
                     if st.session_state.get("user_role") != "admin":
@@ -1726,7 +1729,11 @@ if check_password():
                 if st.button(btn_label, type="primary", use_container_width=True) and f_name:
                     recipe_json = edit_df.to_dict(orient='records')
                     if "edit_formula_id" in st.session_state:
+                        # Capture before state for audit
+                        before_row = formulas_df[formulas_df['id'] == st.session_state.edit_formula_id]
+                        before_data = before_row.iloc[0].to_dict() if not before_row.empty else None
                         supabase.table("formulas").update({"formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).eq('id', st.session_state.edit_formula_id).execute()
+                        log_action("UPDATE", "formulas", int(st.session_state.edit_formula_id), str(f_name), before_data=before_data, after_data={"formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text})
                         st.toast("Updated Successfully!", icon="✅")
                     else:
                         if "base_fr_code" in st.session_state:
@@ -1740,11 +1747,16 @@ if check_password():
                                 root_codes = formulas_df['fr_code'].str.extract(r'FR(\d{5})')[0].dropna().astype(int)
                                 next_id = root_codes.max() + 1 if not root_codes.empty else 1
                                 fr_c = f"FR{next_id:05d}"
-                        supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).execute()
+                        ins_resp = supabase.table("formulas").insert({"fr_code": fr_c, "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text}).execute()
+                        new_id = ins_resp.data[0]['id'] if ins_resp.data else None
+                        log_action("CREATE", "formulas", new_id, str(f_name), after_data={"fr_code": fr_c, "formula_name": f_name, "recipe": recipe_json, "procedure": procedure_text})
                         st.toast("Saved to Library!", icon="✅")
                     st.session_state.builder = pd.DataFrame([{"Phase": "A", "Ingredient": None, "%": 0.0}])
                     for key in ["draft_name", "base_fr_code", "draft_procedure", "edit_formula_id", "edit_fr_code"]:
                         if key in st.session_state: del st.session_state[key]
+                    clear_cache()
+                    time.sleep(0.5)
+                    st.rerun()
             else: st.warning(f"⚠️ Total: {total_perc}% (Must equal 100%)")
 
     # --- 8. COGS CALCULATOR ---
