@@ -567,6 +567,7 @@ if check_password():
                     for index, row in edited_sales.iterrows():
                         orig = display_sales.loc[index]
                         if row['status'] != orig['status']:
+                            log_action("UPDATE", "sales_records", int(row['id']), str(row.get('order_description', '')), after_data={"status": str(row['status'])})
                             supabase.table('sales_records').update({'status': row['status']}).eq('id', int(row['id'])).execute()
                     st.toast("Ledger payments synchronized!", icon="✅")
                     clear_cache(); st.rerun()
@@ -616,6 +617,7 @@ if check_password():
                                 note_text = order_note if order_note else ""
                                 if disc_parts: note_text = (note_text + " | " if note_text else "") + ", ".join(disc_parts)
                                 if note_text: update_data["notes"] = note_text
+                                log_action("UPDATE", "sales_records", int(erow['id']), str(erow.get('Product', '')), after_data=update_data)
                                 supabase.table('sales_records').update(update_data).eq('id', int(erow['id'])).execute()
                             st.toast("Order updated with new pricing!", icon="✅")
                             time.sleep(0.5)
@@ -636,6 +638,7 @@ if check_password():
                                         current_stock = int(fp_match.iloc[0]['stock_quantity'])
                                         new_stock = current_stock + int(sale_item['quantity'])
                                         supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', fp_id).execute()
+                                    log_action("DELETE", "sales_records", int(sel_id), f"Sale ID {sel_id}")
                                     supabase.table('sales_records').delete().eq('id', int(sel_id)).execute()
                                     st.toast("Transaction reversed! Financials updated and FP stock restored.", icon="✅")
                                     time.sleep(0.5)
@@ -759,7 +762,8 @@ if check_password():
                                 gm = (net / gross) if gross > 0 else 0.0
                                 new_stock = int(fg_m['stock_quantity']) - line['qty']
                                 supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_m['id'])).execute()
-                                supabase.table('sales_records').insert({"order_description": line['product'], "quantity": line['qty'], "unit_price": line['price'], "gross_revenue": gross, "cogs": total_cogs, "net_profit": net, "account": client_name, "order_ref_number": order_ref, "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": client_channel, "status": status}).execute()
+                                ins_sale = supabase.table('sales_records').insert({"order_description": line['product'], "quantity": line['qty'], "unit_price": line['price'], "gross_revenue": gross, "cogs": total_cogs, "net_profit": net, "account": client_name, "order_ref_number": order_ref, "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": client_channel, "status": status}).execute()
+                                log_action("CREATE", "sales_records", ins_sale.data[0]['id'] if ins_sale.data else None, f"{line['product']} x {line['qty']} ({client_name})", after_data={"order_description": line['product'], "quantity": int(line['qty']), "unit_price": float(line['price']), "gross_revenue": float(gross), "account": client_name, "order_ref_number": order_ref})
                             for pu in pkg_updates:
                                 supabase.table('packaging').update({'remaining_quantity': pu['new_stock']}).eq('id', pu['id']).execute()
                             if client_select == "-- Type manually --" and client_name:
@@ -789,6 +793,7 @@ if check_password():
                     for idx, row in edited_clients.iterrows():
                         orig = clients_df.loc[idx]
                         if any(row[c] != orig[c] for c in ['client_name', 'business_name', 'phone', 'email', 'channel']):
+                            log_action("UPDATE", "clients", int(orig['id']), str(row['client_name']), before_data=dict(orig), after_data={"client_name": row['client_name'], "business_name": row['business_name'], "phone": row['phone'], "email": row['email'], "channel": row['channel']})
                             supabase.table('clients').update({"client_name": row['client_name'], "business_name": row['business_name'], "phone": row['phone'], "email": row['email'], "channel": row['channel']}).eq('id', int(orig['id'])).execute()
                     st.toast("Client records synchronized!", icon="✅")
                     clear_cache(); st.rerun()
@@ -823,6 +828,7 @@ if check_password():
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="del_client")
                         if st.button("Erase Client Record") and del_pass == "lab2026":
+                            log_action("DELETE", "clients", int(client_row['id']), str(client_row.get('client_name', '')), before_data=dict(client_row))
                             supabase.table('clients').delete().eq('id', int(client_row['id'])).execute()
                             clear_cache(); st.rerun()
         else:
@@ -841,7 +847,8 @@ if check_password():
                 new_channel = ac5.selectbox("Channel", ["Physiotherapists", "Beauty centers", "Direct to Consumer", "Wholesale"])
                 new_notes = ac6.text_input("Notes")
                 if st.form_submit_button("Register Client", type="primary") and new_name:
-                    supabase.table('clients').insert({"client_name": new_name, "business_name": new_biz, "phone": new_phone, "email": new_email, "address": new_addr, "channel": new_channel, "notes": new_notes}).execute()
+                    ins_cl = supabase.table('clients').insert({"client_name": new_name, "business_name": new_biz, "phone": new_phone, "email": new_email, "address": new_addr, "channel": new_channel, "notes": new_notes}).execute()
+                    log_action("CREATE", "clients", ins_cl.data[0]['id'] if ins_cl.data else None, str(new_name), after_data={"client_name": new_name, "channel": new_channel})
                     st.toast(f"Client '{new_name}' registered!", icon="✅")
                     time.sleep(0.5); clear_cache(); st.rerun()
 
@@ -905,6 +912,7 @@ if check_password():
                             if st.form_submit_button("Log as Revenue & Update Consignment", type="primary"):
                                 new_qty_sold = int(cons_item['qty_sold']) + int(units_sold)
                                 new_status = "Completed" if new_qty_sold >= int(cons_item['qty_consigned']) else "Active"
+                                log_action("UPDATE", "consignment_records", int(sel_id), str(cons_item.get('product_name', '')), after_data={"qty_sold": int(new_qty_sold), "status": new_status})
                                 supabase.table('consignment_records').update({'qty_sold': int(new_qty_sold), 'status': new_status}).eq('id', int(sel_id)).execute()
                                 gross_rev = float(units_sold) * float(cons_item['wholesale_price'])
                                 cogs = float(units_sold) * float(cons_item['unit_cogs'])
@@ -923,6 +931,7 @@ if check_password():
                     reset_col2.write("<br>", unsafe_allow_html=True)
                     if reset_col2.button("Reset", type="primary", key="reset_cons_btn"):
                         new_s = "Active" if int(reset_qty) < int(cons_item['qty_consigned']) else "Completed"
+                        log_action("RESET", "consignment_records", int(sel_id), str(cons_item.get('product_name', '')), after_data={"qty_sold": int(reset_qty), "status": new_s})
                         supabase.table('consignment_records').update({'qty_sold': int(reset_qty), 'status': new_s}).eq('id', int(sel_id)).execute()
                         _fetch_cached.clear()
                         st.cache_data.clear()
@@ -942,6 +951,7 @@ if check_password():
                                         fp_id = int(fp_match.iloc[0]['id'])
                                         current_stock = int(fp_match.iloc[0]['stock_quantity'])
                                         supabase.table('finished_products').update({'stock_quantity': current_stock + remaining}).eq('id', fp_id).execute()
+                                log_action("DELETE", "consignment_records", int(sel_id), str(cons_item.get('product_name', '')), before_data=dict(cons_item))
                                 supabase.table('consignment_records').delete().eq('id', int(sel_id)).execute()
                                 _fetch_cached.clear()
                                 st.cache_data.clear()
@@ -986,7 +996,8 @@ if check_password():
                             st.error(f"⚠️ You only have {curr_stock} of {prod}. Aborted.")
                         else:
                             supabase.table('finished_products').update({'stock_quantity': curr_stock - qty}).eq('id', int(fg_match['id'])).execute()
-                            supabase.table('consignment_records').insert({"partner_name": str(partner), "order_ref_number": str(ref), "product_name": str(prod), "qty_consigned": int(qty), "unit_cogs": float(def_cogs), "retail_price": float(retail_p), "wholesale_price": float(wholesale_p)}).execute()
+                            ins_cons = supabase.table('consignment_records').insert({"partner_name": str(partner), "order_ref_number": str(ref), "product_name": str(prod), "qty_consigned": int(qty), "unit_cogs": float(def_cogs), "retail_price": float(retail_p), "wholesale_price": float(wholesale_p)}).execute()
+                            log_action("CREATE", "consignment_records", ins_cons.data[0]['id'] if ins_cons.data else None, f"{prod} -> {partner}", after_data={"partner_name": str(partner), "product_name": str(prod), "qty_consigned": int(qty)})
                             st.toast("Consignment logged securely!", icon="✅")
                             time.sleep(0.5); clear_cache(); st.rerun()
 
@@ -1220,6 +1231,7 @@ if check_password():
                     for idx, row in edited_inv.iterrows():
                         orig = inventory.loc[idx]
                         if row['trade_name'] != orig['trade_name'] or row['inci_name'] != orig['inci_name'] or row['price_per_kg'] != orig['price_per_kg']:
+                            log_action("UPDATE", "inventory", int(orig['id']), str(row['trade_name']), before_data=dict(orig), after_data={"trade_name": row['trade_name'], "inci_name": row['inci_name'], "price_per_kg": float(row['price_per_kg'])})
                             supabase.table('inventory').update({"trade_name": row['trade_name'], "inci_name": row['inci_name'], "price_per_kg": row['price_per_kg']}).eq('id', int(orig['id'])).execute()
                     clear_cache(); st.rerun()
             selected_mats = edited_inv[edited_inv['🔍'] == True]
@@ -1343,7 +1355,9 @@ if check_password():
                     next_id = 1 if inventory.empty else int(inventory['id'].max()) + 1
                     rm_code = f"RM{next_id:05d}"
                     init_lot = [{"Lot Number": new_lot, "Mfg Date": new_mfg.strftime('%Y-%m-%d'), "Rcv Date": new_rcv.strftime('%Y-%m-%d'), "Exp Date": new_exp.strftime('%Y-%m-%d'), "Qty (Kg)": float(new_q), "Current": True}]
-                    supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q, "lots": init_lot}).execute(); clear_cache(); st.rerun()
+                    ins_rm = supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": new_t, "inci_name": new_i, "price_per_kg": new_p, "quantity_kg": new_q, "lots": init_lot}).execute()
+                    log_action("CREATE", "inventory", ins_rm.data[0]['id'] if ins_rm.data else None, str(new_t), after_data={"rm_code": rm_code, "trade_name": new_t, "price_per_kg": float(new_p), "quantity_kg": float(new_q)})
+                    clear_cache(); st.rerun()
 
     # --- 5. PACKAGING LIBRARY ---
     elif menu == "Packaging Library":
@@ -1359,6 +1373,7 @@ if check_password():
                     for idx, row in edited_pk.iterrows():
                         orig = packaging.loc[idx]
                         if row['material_name'] != orig['material_name'] or row['supplier'] != orig['supplier'] or row['cost_per_unit'] != orig['cost_per_unit']:
+                            log_action("UPDATE", "packaging", int(orig['id']), str(row['material_name']), before_data=dict(orig), after_data={"material_name": row['material_name'], "supplier": row['supplier'], "cost_per_unit": float(row['cost_per_unit'])})
                             supabase.table('packaging').update({"material_name": row['material_name'], "supplier": row['supplier'], "cost_per_unit": row['cost_per_unit']}).eq('id', int(orig['id'])).execute()
                     clear_cache(); st.rerun()
             selected_pk = edited_pk[edited_pk['🔍'] == True]
@@ -1422,7 +1437,9 @@ if check_password():
                     next_pm = 1 if packaging.empty else int(packaging['id'].max()) + 1
                     pm_code = f"PM{next_pm:05d}"
                     init_lot = [{"Lot Number": new_lot, "Rcv Date": new_rcv.strftime('%Y-%m-%d'), "Qty (Units)": int(p_q), "Current": True}]
-                    supabase.table('packaging').insert({"pm_code": pm_code, "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q, "lots": init_lot}).execute(); clear_cache(); st.rerun()
+                    ins_pk = supabase.table('packaging').insert({"pm_code": pm_code, "material_name": p_n, "supplier": p_s, "cost_per_unit": p_c, "remaining_quantity": p_q, "lots": init_lot}).execute()
+                    log_action("CREATE", "packaging", ins_pk.data[0]['id'] if ins_pk.data else None, str(p_n), after_data={"pm_code": pm_code, "material_name": p_n, "supplier": p_s, "cost_per_unit": float(p_c), "remaining_quantity": int(p_q)})
+                    clear_cache(); st.rerun()
 
     # --- 6. FINISHED PRODUCTS LIBRARY ---
     elif menu == "Finished Products":
@@ -1440,6 +1457,7 @@ if check_password():
                     for idx, row in edited_fp.iterrows():
                         orig = finished_goods.loc[idx]
                         if row['stock_quantity'] != orig['stock_quantity']:
+                            log_action("UPDATE", "finished_products", int(orig['id']), str(orig.get('product_name', '')), after_data={"stock_quantity": int(row['stock_quantity'])})
                             supabase.table('finished_products').update({"stock_quantity": row['stock_quantity']}).eq('id', int(orig['id'])).execute()
                     st.toast("Finished goods synced!", icon="✅")
                     clear_cache(); st.rerun()
@@ -1478,10 +1496,12 @@ if check_password():
                             existing_product = finished_goods[finished_goods['product_name'] == target_name]
                             existing_id = int(existing_product.iloc[0]['id'])
                             new_qty = int(existing_product.iloc[0]['stock_quantity']) + fp_q
+                            log_action("ADD_TO_STOCK", "finished_products", int(existing_id), str(target_name), after_data={"stock_quantity": int(new_qty), "unit_cogs": float(target_cogs), "retail_price": float(target_retail)})
                             supabase.table('finished_products').update({"stock_quantity": new_qty, "unit_cogs": target_cogs, "retail_price": target_retail}).eq('id', existing_id).execute()
                         else:
                             next_fp = 1 if finished_goods.empty else int(finished_goods['id'].max()) + 1
-                            supabase.table('finished_products').insert({"fp_code": f"FP{next_fp:05d}", "product_name": target_name, "stock_quantity": fp_q, "unit_cogs": target_cogs, "retail_price": target_retail}).execute()
+                            ins_fp = supabase.table('finished_products').insert({"fp_code": f"FP{next_fp:05d}", "product_name": target_name, "stock_quantity": fp_q, "unit_cogs": target_cogs, "retail_price": target_retail}).execute()
+                            log_action("CREATE", "finished_products", ins_fp.data[0]['id'] if ins_fp.data else None, str(target_name), after_data={"fp_code": f"FP{next_fp:05d}", "product_name": target_name, "stock_quantity": int(fp_q), "unit_cogs": float(target_cogs), "retail_price": float(target_retail)})
                         clear_cache(); st.rerun()
             else:
                 st.warning("⚠️ You need to architect and save a product profile in the **COGS Calculator** before you can log it to your finished inventory.")
@@ -1984,7 +2004,8 @@ if check_password():
                 sc2.write("<br>", unsafe_allow_html=True)
                 if sc2.button("Commit Profile", type="primary", use_container_width=True, key="build_save_btn"):
                     if cogs_name:
-                        supabase.table('cogs_records').insert({"product_name": cogs_name, "formula_name": n_only if sel_form else "None", "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom", "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl, "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct, "version": 1, "is_active": True}).execute()
+                        ins_c = supabase.table('cogs_records').insert({"product_name": cogs_name, "formula_name": n_only if sel_form else "None", "fill_weight_g": fill_wt, "primary_packaging": sel_pack.split("] ")[1] if sel_pack != "None / Custom" else "Custom", "bulk_cost": bulk_cost, "packaging_cost": pack_cost, "mfg_cost": cost_mfg, "label_cost": cost_lbl, "total_cogs": total_cogs, "target_retail": target_retail, "gross_margin_pct": margin_pct, "version": 1, "is_active": True}).execute()
+                        log_action("CREATE", "cogs_records", ins_c.data[0]['id'] if ins_c.data else None, str(cogs_name), after_data={"product_name": cogs_name, "total_cogs": float(total_cogs), "target_retail": float(target_retail), "gross_margin_pct": float(margin_pct)})
                         st.toast(f"Saved profile: {cogs_name}", icon="✅")
                         clear_cache(); st.rerun()
                     else:
@@ -2013,6 +2034,7 @@ if check_password():
                                 new_retail = float(row['target_retail'])
                                 new_cogs = float(orig['total_cogs'])
                                 new_margin = ((new_retail - new_cogs) / new_retail * 100) if new_retail > 0 else 0.0
+                                log_action("UPDATE", "cogs_records", int(orig['id']), str(row['product_name']), after_data={"product_name": row['product_name'], "target_retail": float(new_retail), "gross_margin_pct": float(new_margin)})
                                 supabase.table('cogs_records').update({"product_name": row['product_name'], "target_retail": new_retail, "gross_margin_pct": new_margin}).eq('id', int(orig['id'])).execute()
                         st.toast("COGS profiles synced!", icon="✅")
                         clear_cache(); st.rerun()
@@ -2069,7 +2091,8 @@ if check_password():
                                     recalc_mfg = float(cogs_item.get('mfg_cost', 0) or 0)
                                     recalc_lbl = float(cogs_item.get('label_cost', 0) or 0)
                                     supabase.table('cogs_records').update({"is_active": False}).eq('id', int(cogs_item['id'])).execute()
-                                    supabase.table('cogs_records').insert({"product_name": cogs_item['product_name'], "formula_name": cogs_item['formula_name'], "fill_weight_g": float(cogs_item['fill_weight_g']), "primary_packaging": cogs_item['primary_packaging'], "bulk_cost": recalc_bulk, "packaging_cost": recalc_pack, "mfg_cost": recalc_mfg, "label_cost": recalc_lbl, "total_cogs": recalc_total, "target_retail": retail, "gross_margin_pct": new_margin, "version": int(cogs_item.get('version', 1) or 1) + 1, "is_active": True, "parent_id": int(cogs_item['id'])}).execute()
+                                    ins_recalc = supabase.table('cogs_records').insert({"product_name": cogs_item['product_name'], "formula_name": cogs_item['formula_name'], "fill_weight_g": float(cogs_item['fill_weight_g']), "primary_packaging": cogs_item['primary_packaging'], "bulk_cost": recalc_bulk, "packaging_cost": recalc_pack, "mfg_cost": recalc_mfg, "label_cost": recalc_lbl, "total_cogs": recalc_total, "target_retail": retail, "gross_margin_pct": new_margin, "version": int(cogs_item.get('version', 1) or 1) + 1, "is_active": True, "parent_id": int(cogs_item['id'])}).execute()
+                                    log_action("RECALC_COGS", "cogs_records", ins_recalc.data[0]['id'] if ins_recalc.data else None, str(cogs_item['product_name']), before_data={"total_cogs": float(cogs_item['total_cogs'])}, after_data={"total_cogs": float(recalc_total), "version": int(cogs_item.get('version', 1) or 1) + 1})
                                     st.toast("New COGS version created! Old version archived.", icon="✅")
                                     time.sleep(0.5); clear_cache(); st.rerun()
                             else:
@@ -2186,21 +2209,25 @@ if check_password():
                             if not sales_records_df.empty:
                                 matches = sales_records_df[sales_records_df['order_description'] == old_name]
                                 for _, row in matches.iterrows():
+                                    log_action("RENAME_PRODUCT", "sales_records", int(row['id']), final_name, before_data={"old_name": str(row.get('order_description', ''))}, after_data={"new_name": final_name})
                                     supabase.table('sales_records').update({"order_description": final_name}).eq('id', int(row['id'])).execute()
                                     changes += 1
                             if not finished_goods.empty:
                                 matches = finished_goods[finished_goods['product_name'] == old_name]
                                 for _, row in matches.iterrows():
+                                    log_action("RENAME_PRODUCT", "finished_products", int(row['id']), final_name, before_data={"old_name": str(row.get('product_name', ''))}, after_data={"new_name": final_name})
                                     supabase.table('finished_products').update({"product_name": final_name}).eq('id', int(row['id'])).execute()
                                     changes += 1
                             if not consignment_df.empty:
                                 matches = consignment_df[consignment_df['product_name'] == old_name]
                                 for _, row in matches.iterrows():
+                                    log_action("RENAME_PRODUCT", "consignment_records", int(row['id']), final_name, before_data={"old_name": str(row.get('product_name', ''))}, after_data={"new_name": final_name})
                                     supabase.table('consignment_records').update({"product_name": final_name}).eq('id', int(row['id'])).execute()
                                     changes += 1
                             if not cogs_records_df.empty:
                                 matches = cogs_records_df[cogs_records_df['product_name'] == old_name]
                                 for _, row in matches.iterrows():
+                                    log_action("RENAME_PRODUCT", "cogs_records", int(row['id']), final_name, before_data={"old_name": str(row.get('product_name', ''))}, after_data={"new_name": final_name})
                                     supabase.table('cogs_records').update({"product_name": final_name}).eq('id', int(row['id'])).execute()
                                     changes += 1
                             pf_df = fetch_vault_data('portfolios', 'portfolio_name')
@@ -2246,16 +2273,19 @@ if check_password():
                             if not sales_records_df.empty:
                                 matches = sales_records_df[sales_records_df['account'] == old_client]
                                 for _, row in matches.iterrows():
+                                    log_action("RENAME_CLIENT", "sales_records", int(row['id']), final_client, after_data={"new_client": final_client})
                                     supabase.table('sales_records').update({"account": final_client}).eq('id', int(row['id'])).execute()
                                     changes += 1
                             if not clients_df.empty:
                                 matches = clients_df[clients_df['client_name'] == old_client]
                                 for _, row in matches.iterrows():
+                                    log_action("RENAME_CLIENT", "clients", int(row['id']), final_client, after_data={"new_client": final_client})
                                     supabase.table('clients').update({"client_name": final_client}).eq('id', int(row['id'])).execute()
                                     changes += 1
                             if not consignment_df.empty:
                                 matches = consignment_df[consignment_df['partner_name'] == old_client]
                                 for _, row in matches.iterrows():
+                                    log_action("RENAME_CLIENT", "consignment_records", int(row['id']), final_client, after_data={"new_client": final_client})
                                     supabase.table('consignment_records').update({"partner_name": final_client}).eq('id', int(row['id'])).execute()
                                     changes += 1
                             # Delete duplicate client records with old name
@@ -2302,7 +2332,8 @@ if check_password():
                         elif len(pf_products) < 2:
                             st.error("Select at least 2 products to group.")
                         else:
-                            supabase.table('portfolios').insert({"portfolio_name": pf_name.strip(), "products": list(dict.fromkeys(pf_products)), "description": pf_desc}).execute()
+                            ins_pf = supabase.table('portfolios').insert({"portfolio_name": pf_name.strip(), "products": list(dict.fromkeys(pf_products)), "description": pf_desc}).execute()
+                            log_action("CREATE", "portfolios", ins_pf.data[0]['id'] if ins_pf.data else None, str(pf_name.strip()), after_data={"portfolio_name": pf_name.strip(), "products": list(dict.fromkeys(pf_products))})
                             st.toast(f"Portfolio '{pf_name}' created with {len(pf_products)} products!", icon="✅")
                             time.sleep(0.5); clear_cache(); st.rerun()
 
@@ -2335,10 +2366,12 @@ if check_password():
                         edit_products = st.multiselect(f"Edit products in '{pf['portfolio_name']}':", all_product_names, default=valid_defaults, key=f"edit_pf_{pf['id']}")
                         ec1, ec2 = st.columns(2)
                         if ec1.button("Update Products", key=f"upd_pf_{pf['id']}"):
+                            log_action("UPDATE", "portfolios", int(pf['id']), str(pf.get('portfolio_name', '')), after_data={"products": list(dict.fromkeys(edit_products))})
                             supabase.table('portfolios').update({"products": list(dict.fromkeys(edit_products))}).eq('id', int(pf['id'])).execute()
                             st.toast("Portfolio updated!", icon="✅")
                             clear_cache(); st.rerun()
                         if ec2.button("Delete Portfolio", key=f"del_pf_{pf['id']}"):
+                            log_action("DELETE", "portfolios", int(pf['id']), str(pf.get('portfolio_name', '')), before_data=dict(pf))
                             supabase.table('portfolios').delete().eq('id', int(pf['id'])).execute()
                             clear_cache(); st.rerun()
         else:
@@ -2458,6 +2491,7 @@ if check_password():
                         unit_cogs = float(row['Unit COGS'])
                         new_margin = ((new_retail - unit_cogs) / new_retail * 100) if new_retail > 0 else 0.0
                         # Update Finished Products
+                        log_action("UPDATE_PRICE", "finished_products", int(row['id']), str(row.get('product_name', '')), after_data={"retail_price": float(new_retail)})
                         supabase.table('finished_products').update({"retail_price": new_retail}).eq('id', int(row['id'])).execute()
                         # Update active COGS profile
                         if not cogs_records_df.empty:
@@ -2702,7 +2736,8 @@ if check_password():
                             lot_num = f"{rm_code}-L01"
                             exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
                             init_lot = [{"Lot Number": lot_num, "Mfg Date": today_str, "Rcv Date": today_str, "Exp Date": exp_str, "Qty (Kg)": qty, "Price/Kg": price, "Current": True}]
-                            supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": target_name, "inci_name": "", "price_per_kg": price, "quantity_kg": qty, "lots": init_lot}).execute()
+                            ins_bi_rm = supabase.table('inventory').insert({"rm_code": rm_code, "trade_name": target_name, "inci_name": "", "price_per_kg": price, "quantity_kg": qty, "lots": init_lot}).execute()
+                            log_action("BULK_IMPORT_CREATE", "inventory", ins_bi_rm.data[0]['id'] if ins_bi_rm.data else None, str(target_name), after_data={"rm_code": rm_code, "trade_name": target_name, "qty": float(qty), "price": float(price)})
                             new_created += 1
                             inventory = pd.concat([inventory, pd.DataFrame([{"id": next_id, "rm_code": rm_code, "trade_name": target_name, "quantity_kg": qty, "price_per_kg": price}])], ignore_index=True) if not inventory.empty else pd.DataFrame([{"id": next_id, "rm_code": rm_code, "trade_name": target_name, "quantity_kg": qty, "price_per_kg": price}])
                         else:
@@ -2715,6 +2750,7 @@ if check_password():
                             exp_str = (datetime.today() + pd.DateOffset(years=2)).strftime('%Y-%m-%d')
                             lots.append({"Lot Number": lot_num, "Mfg Date": today_str, "Rcv Date": today_str, "Exp Date": exp_str, "Qty (Kg)": qty, "Price/Kg": price, "Current": True})
                             new_total = float(mat['quantity_kg']) + qty
+                            log_action("BULK_IMPORT_ADD_LOT", "inventory", int(mat['id']), str(target_name), after_data={"new_lot": lots[-1] if lots else None, "new_total_kg": float(new_total)})
                             supabase.table('inventory').update({"lots": lots, "quantity_kg": new_total, "price_per_kg": price}).eq('id', int(mat['id'])).execute()
                         imports_done += 1
                     elif row_type == "PM":
@@ -2723,7 +2759,8 @@ if check_password():
                             pm_code = f"PM{next_id:05d}"
                             lot_num = f"{pm_code}-L01"
                             init_lot = [{"Lot Number": lot_num, "Rcv Date": today_str, "Qty (Units)": int(qty), "Current": True}]
-                            supabase.table('packaging').insert({"pm_code": pm_code, "material_name": target_name, "supplier": "", "cost_per_unit": price, "remaining_quantity": int(qty), "lots": init_lot}).execute()
+                            ins_bi_pk = supabase.table('packaging').insert({"pm_code": pm_code, "material_name": target_name, "supplier": "", "cost_per_unit": price, "remaining_quantity": int(qty), "lots": init_lot}).execute()
+                            log_action("BULK_IMPORT_CREATE", "packaging", ins_bi_pk.data[0]['id'] if ins_bi_pk.data else None, str(target_name), after_data={"pm_code": pm_code, "material_name": target_name, "qty": int(qty), "price": float(price)})
                             new_created += 1
                             packaging = pd.concat([packaging, pd.DataFrame([{"id": next_id, "pm_code": pm_code, "material_name": target_name, "remaining_quantity": int(qty), "cost_per_unit": price}])], ignore_index=True) if not packaging.empty else pd.DataFrame([{"id": next_id, "pm_code": pm_code, "material_name": target_name, "remaining_quantity": int(qty), "cost_per_unit": price}])
                         else:
@@ -2735,6 +2772,7 @@ if check_password():
                             lot_num = f"{pm['pm_code']}-L{lot_count:02d}"
                             lots.append({"Lot Number": lot_num, "Rcv Date": today_str, "Qty (Units)": int(qty), "Current": True})
                             new_total = int(pm['remaining_quantity']) + int(qty)
+                            log_action("BULK_IMPORT_ADD_LOT", "packaging", int(pm['id']), str(target_name), after_data={"new_lot": lots[-1] if lots else None, "new_total_units": int(new_total)})
                             supabase.table('packaging').update({"lots": lots, "remaining_quantity": new_total, "cost_per_unit": price}).eq('id', int(pm['id'])).execute()
                         imports_done += 1
                 st.toast(f"✅ Imported {imports_done} row(s). Created {new_created} new material(s).", icon="✅")
