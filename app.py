@@ -44,6 +44,7 @@ supabase = init_connection()
 
 @st.cache_data(ttl=60, show_spinner=False)
 def _fetch_cached(table_name, sort_column=None):
+    last_error = None
     for attempt in range(3): 
         try:
             resp = supabase.table(table_name).select("*").execute()
@@ -51,13 +52,17 @@ def _fetch_cached(table_name, sort_column=None):
             if not df.empty and sort_column and sort_column in df.columns:
                 df = df.sort_values(sort_column)
             return df
-        except Exception: time.sleep(0.5) 
-    return pd.DataFrame()
+        except Exception as e:
+            last_error = e
+            time.sleep(0.5)
+    raise RuntimeError(f"Could not load {table_name}: {last_error}")
 
 def fetch_vault_data(table_name, sort_column=None):
-    df = _fetch_cached(table_name, sort_column)
-    if df is None:
-        st.error(f"⚠️ Network timeout accessing {table_name}. Please refresh.")
+    try:
+        df = _fetch_cached(table_name, sort_column)
+    except Exception as e:
+        st.error(f"Could not load {table_name}. Please refresh before making changes.")
+        st.caption(str(e))
         st.stop()
     return df.copy()
 
@@ -75,6 +80,33 @@ def safe_float(value, default=0.0):
         return float(value)
     except Exception:
         return default
+
+def get_auth_users():
+    try:
+        raw_users = st.secrets.get("auth", {}).get("users", {})
+    except Exception:
+        raw_users = {}
+    users = {}
+    for username, config in raw_users.items():
+        password = config.get("password") or config.get("pass")
+        role = config.get("role", "Analyst")
+        if password:
+            users[str(username).strip().lower()] = {"password": str(password), "role": str(role)}
+    return users
+
+def get_admin_passcode():
+    try:
+        passcode = st.secrets.get("auth", {}).get("admin_passcode")
+    except Exception:
+        passcode = None
+    return str(passcode) if passcode else None
+
+def verify_admin_passcode(passcode):
+    expected = get_admin_passcode()
+    if not expected:
+        st.error("Admin passcode is not configured. Add auth.admin_passcode to Streamlit secrets.")
+        return False
+    return passcode == expected
 
 def log_action(action, table_name=None, record_id=None, record_label=None, before_data=None, after_data=None):
     """Silent audit trail logger. Never blocks the main app on failure."""
@@ -374,9 +406,12 @@ def check_password():
         username = st.text_input("Username", placeholder="Enter your name...")
         password = st.text_input("Passcode", type="password", placeholder="Enter passcode...")
         if st.button("Authenticate", use_container_width=True, type="primary"):
-            users = {"anthony": {"pass": "lab2026", "role": "admin"}, "fadia": {"pass": "FadiaBoustany123", "role": "Analyst"}}
+            users = get_auth_users()
+            if not users:
+                st.error("No users configured. Add auth.users to Streamlit secrets.")
+                return False
             matched = users.get(username.strip().lower())
-            if matched and password == matched["pass"]:
+            if matched and password == matched["password"]:
                 st.session_state["authenticated"] = True
                 st.session_state["user_role"] = matched["role"]
                 st.session_state["user_name"] = username
@@ -643,7 +678,7 @@ if check_password():
                         with st.expander("⚠️ System Actions: Reverse Line Item"):
                             rev_pass = st.text_input("Authorization Passcode", type="password", key=f"rev_{sel_id}")
                             if st.button("Reverse Sale & Restore Stock", type="primary"):
-                                if rev_pass == "lab2026":
+                                if verify_admin_passcode(rev_pass):
                                     fp_match = finished_goods[finished_goods['product_name'] == sale_item['order_description']]
                                     if not fp_match.empty:
                                         fp_id = int(fp_match.iloc[0]['id'])
@@ -736,12 +771,18 @@ if check_password():
                         st.error("⚠️ Please select or enter a client name.")
                     else:
                         shortage = False
+                        order_needs = {}
                         for line in st.session_state.order_lines:
-                            fg_m = finished_goods[finished_goods['product_name'] == line['product']].iloc[0]
-                            if int(fg_m['stock_quantity']) < line['qty']:
-                                st.error(f"⚠️ Not enough {line['product']} in stock ({fg_m['stock_quantity']} available, {line['qty']} needed).")
+                            order_needs[line['product']] = order_needs.get(line['product'], 0) + int(line['qty'])
+                        fp_updates = []
+                        for product, needed_qty in order_needs.items():
+                            fg_m = finished_goods[finished_goods['product_name'] == product].iloc[0]
+                            current_stock = int(fg_m['stock_quantity'])
+                            if current_stock < needed_qty:
+                                st.error(f"⚠️ Not enough {product} in stock ({current_stock} available, {needed_qty} needed).")
                                 shortage = True
                                 break
+                            fp_updates.append({"id": int(fg_m['id']), "new_stock": current_stock - needed_qty})
                         f_needs = {}
                         for _, f_row in f_edited.iterrows():
                             item = f_row.get("Fulfillment Material")
@@ -772,10 +813,10 @@ if check_password():
                                 total_cogs = (line['qty'] * unit_cogs) + line_fulfill
                                 net = gross - total_cogs
                                 gm = (net / gross) if gross > 0 else 0.0
-                                new_stock = int(fg_m['stock_quantity']) - line['qty']
-                                supabase.table('finished_products').update({'stock_quantity': new_stock}).eq('id', int(fg_m['id'])).execute()
                                 ins_sale = supabase.table('sales_records').insert({"order_description": line['product'], "quantity": line['qty'], "unit_price": line['price'], "gross_revenue": gross, "cogs": total_cogs, "net_profit": net, "account": client_name, "order_ref_number": order_ref, "sale_date": sale_date.strftime('%Y-%m-%d'), "gm": gm, "channel": client_channel, "status": status}).execute()
                                 log_action("CREATE", "sales_records", ins_sale.data[0]['id'] if ins_sale.data else None, f"{line['product']} x {line['qty']} ({client_name})", after_data={"order_description": line['product'], "quantity": int(line['qty']), "unit_price": float(line['price']), "gross_revenue": float(gross), "account": client_name, "order_ref_number": order_ref})
+                            for fu in fp_updates:
+                                supabase.table('finished_products').update({'stock_quantity': fu['new_stock']}).eq('id', fu['id']).execute()
                             for pu in pkg_updates:
                                 supabase.table('packaging').update({'remaining_quantity': pu['new_stock']}).eq('id', pu['id']).execute()
                             if client_select == "-- Type manually --" and client_name:
@@ -839,7 +880,7 @@ if check_password():
                         st.info("No sales records in the system yet.")
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="del_client")
-                        if st.button("Erase Client Record") and del_pass == "lab2026":
+                        if st.button("Erase Client Record") and verify_admin_passcode(del_pass):
                             log_action("DELETE", "clients", int(client_row['id']), str(client_row.get('client_name', '')), before_data=dict(client_row))
                             supabase.table('clients').delete().eq('id', int(client_row['id'])).execute()
                             clear_cache(); st.rerun()
@@ -955,7 +996,7 @@ if check_password():
                         del_cons_pass = st.text_input("Authorization Passcode", type="password", key="del_cons_pass")
                         restore_stock = st.checkbox("Restore stock to Finished Products", value=True, key="restore_cons_stock")
                         if st.button("Permanently Delete This Record", key="del_cons_btn"):
-                            if del_cons_pass == "lab2026":
+                            if verify_admin_passcode(del_cons_pass):
                                 if restore_stock:
                                     remaining = int(cons_item['qty_consigned']) - int(cons_item['qty_sold'])
                                     fp_match = finished_goods[finished_goods['product_name'] == cons_item['product_name']]
@@ -1349,7 +1390,7 @@ if check_password():
                                 time.sleep(0.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
                         del_pass = st.text_input("Authorization Passcode", type="password", key="dmp")
-                        if st.button("Erase Record") and del_pass == "lab2026":
+                        if st.button("Erase Record") and verify_admin_passcode(del_pass):
                             log_action("DELETE", "inventory", int(mat['id']), str(mat['trade_name']), before_data=mat.to_dict() if hasattr(mat, 'to_dict') else dict(mat))
                             supabase.table('inventory').delete().eq('id', int(mat['id'])).execute(); clear_cache(); st.rerun()
         st.write("---")
@@ -1433,7 +1474,8 @@ if check_password():
                                 st.toast("Lots updated successfully! Total Stock recalculated.", icon="✅")
                                 time.sleep(0.5); clear_cache(); st.rerun()
                     with st.expander("System Actions"):
-                        if st.button("Erase Record") and st.text_input("Authorization", type="password", key="dpp") == "lab2026":
+                        del_pk_pass = st.text_input("Authorization", type="password", key="dpp")
+                        if st.button("Erase Record") and verify_admin_passcode(del_pk_pass):
                             log_action("DELETE", "packaging", int(p_mat['id']), str(p_mat['material_name']), before_data=p_mat.to_dict() if hasattr(p_mat, 'to_dict') else dict(p_mat))
                             supabase.table('packaging').delete().eq('id', int(p_mat['id'])).execute(); clear_cache(); st.rerun()
         st.write("---")
@@ -1485,7 +1527,8 @@ if check_password():
                     margin = ((fp_item['retail_price'] - fp_item['unit_cogs']) / fp_item['retail_price'] * 100) if fp_item['retail_price'] > 0 else 0
                     c3.write(f"**Profit Margin:** {margin:.1f}%")
                     with st.expander("System Actions"):
-                        if st.button("Erase Record") and st.text_input("Authorization Passcode", type="password", key="dfpp") == "lab2026":
+                        del_fp_pass = st.text_input("Authorization Passcode", type="password", key="dfpp")
+                        if st.button("Erase Record") and verify_admin_passcode(del_fp_pass):
                             log_action("DELETE", "finished_products", int(fp_item['id']), str(fp_item.get('product_name', '')), before_data=fp_item.to_dict() if hasattr(fp_item, 'to_dict') else dict(fp_item))
                             supabase.table('finished_products').delete().eq('id', int(fp_item['id'])).execute(); clear_cache(); st.rerun()
         else:
@@ -1616,7 +1659,7 @@ if check_password():
                     st.write("---")
                     b_size = st.number_input("Target Batch Size (grams)", min_value=1.0, value=1000.0, step=100.0)
                     st.write("---")
-                    calc_data = []; stock_ok = True; total_cost = 0.0
+                    calc_data = []; stock_ok = True; total_cost = 0.0; material_reqs = {}
                     for row in recipe_items:
                         ing = row.get('Ingredient'); p = row.get('%', 0); phase = row.get('Phase', 'A')
                         req_g = (p/100) * b_size
@@ -1624,12 +1667,22 @@ if check_password():
                         if not m.empty:
                             s_kg = float(m['quantity_kg'].values[0]); p_kg = float(m['price_per_kg'].values[0])
                             rm_c = str(m['rm_code'].values[0])
-                            if s_kg < (req_g/1000): stock_ok = False
+                            req_kg = req_g / 1000
+                            if ing not in material_reqs:
+                                material_reqs[ing] = {"req_kg": 0.0, "stock_kg": s_kg}
+                            material_reqs[ing]["req_kg"] += req_kg
+                            if s_kg < req_kg: stock_ok = False
                             cost = (req_g/1000)*p_kg; total_cost += cost
-                            calc_data.append({"Phase": phase, "RM Code": rm_c, "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "✅ Available" if s_kg >= (req_g/1000) else "❌ Shortage", "Est. Cost": f"${cost:.4f}", "req_kg": req_g/1000, "stock_kg": s_kg})
+                            calc_data.append({"Phase": phase, "RM Code": rm_c, "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "✅ Available" if s_kg >= req_kg else "❌ Shortage", "Est. Cost": f"${cost:.4f}", "req_kg": req_kg, "stock_kg": s_kg})
                         else:
                             stock_ok = False
                             calc_data.append({"Phase": phase, "RM Code": "N/A", "Material": ing, "Formula %": f"{p}%", "Needed (g)": f"{req_g:.2f}", "Stock Status": "⚠️ Not in Vault", "Est. Cost": "$0.00", "req_kg": 0, "stock_kg": 0})
+                    for mat_name, req_info in material_reqs.items():
+                        if req_info["stock_kg"] < req_info["req_kg"]:
+                            stock_ok = False
+                            for calc_row in calc_data:
+                                if calc_row["Material"] == mat_name:
+                                    calc_row["Stock Status"] = "❌ Shortage"
                     calc_df = pd.DataFrame(calc_data)
                     if not calc_df.empty:
                         st.dataframe(calc_df.sort_values(by="Phase")[['Phase', 'RM Code', 'Material', 'Formula %', 'Needed (g)', 'Stock Status', 'Est. Cost']], use_container_width=True, hide_index=True)
@@ -1648,8 +1701,8 @@ if check_password():
                                 l_r = supabase.table('production_records').select("id").order("id", desc=True).limit(1).execute()
                                 n_id = 1 if not l_r.data else l_r.data[0]['id'] + 1
                                 b_no, l_no = f"B-{n_id:05d}", f"LOT-{datetime.now().strftime('%Y%m%d')}-{n_id:02d}"
-                                for d in calc_data:
-                                    supabase.table('inventory').update({'quantity_kg': d['stock_kg'] - d['req_kg']}).eq('trade_name', d['Material']).execute()
+                                for mat_name, req_info in material_reqs.items():
+                                    supabase.table('inventory').update({'quantity_kg': req_info['stock_kg'] - req_info['req_kg']}).eq('trade_name', mat_name).execute()
                                 ins_prod = supabase.table('production_records').insert({"fr_code": sel_f['fr_code'], "formula_name": sel_f['formula_name'], "batch_number": b_no, "lot_number": l_no, "batch_size_g": b_size, "total_cost": total_cost}).execute()
                                 new_prod_id = ins_prod.data[0]['id'] if ins_prod.data else None
                                 log_action("EXECUTE_BATCH", "production_records", new_prod_id, f"{sel_f['formula_name']} ({b_no})", after_data={"fr_code": sel_f['fr_code'], "formula_name": sel_f['formula_name'], "batch_number": b_no, "lot_number": l_no, "batch_size_g": float(b_size), "total_cost": float(total_cost), "materials_consumed": [{"name": d['Material'], "qty_kg": float(d['req_kg'])} for d in calc_data]})
@@ -1701,7 +1754,7 @@ if check_password():
                         with c_act4:
                             with st.expander("🗑️ Erase"):
                                 del_f_pass = st.text_input("Authorization Passcode", type="password", key="dfp")
-                                if st.button("Permanently Delete", use_container_width=True) and del_f_pass == "lab2026":
+                                if st.button("Permanently Delete", use_container_width=True) and verify_admin_passcode(del_f_pass):
                                     log_action("DELETE", "formulas", int(sel_f['id']), str(sel_f.get('formula_name', '')), before_data=sel_f.to_dict() if hasattr(sel_f, 'to_dict') else dict(sel_f))
                                     supabase.table('formulas').delete().eq('id', int(sel_f['id'])).execute(); clear_cache(); st.rerun()
         else:
@@ -2131,7 +2184,7 @@ if check_password():
                         with st.expander("System Actions"):
                             del_cogs_pass = st.text_input("Authorization Passcode", type="password", key="dcogsp")
                             if st.button("Erase COGS Profile"):
-                                if del_cogs_pass == "lab2026":
+                                if verify_admin_passcode(del_cogs_pass):
                                     log_action("DELETE", "cogs_records", int(cogs_item['id']), str(cogs_item.get('product_name', '')), before_data=cogs_item.to_dict() if hasattr(cogs_item, 'to_dict') else dict(cogs_item))
                                     supabase.table('cogs_records').delete().eq('id', int(cogs_item['id'])).execute(); clear_cache(); st.rerun()
                                 else: st.error("Incorrect passcode.")
@@ -2870,25 +2923,56 @@ if check_password():
                         st.warning(f"You are about to OVERWRITE these tables: **{', '.join(selected)}**")
                         confirm_text = st.text_input("Type 'RESTORE' (uppercase) to confirm", key="restore_confirm_text")
                         confirm_pass = st.text_input("Authorization Passcode", type="password", key="restore_confirm_pass")
-                        if st.button("🔥 Execute Restore", type="primary", disabled=(confirm_text != "RESTORE" or confirm_pass != "lab2026")):
+                        if st.button("🔥 Execute Restore", type="primary", disabled=(confirm_text != "RESTORE" or not confirm_pass)):
                             try:
-                                progress = st.progress(0, text="Restoring...")
+                                if not verify_admin_passcode(confirm_pass):
+                                    st.error("Incorrect passcode.")
+                                    st.stop()
                                 restore_errors = []
+                                invalid_tables = [tbl for tbl in selected if tbl not in tables_to_backup]
+                                if invalid_tables:
+                                    st.error(f"Backup contains unsupported table(s): {', '.join(invalid_tables)}")
+                                    st.stop()
+                                for tbl in selected:
+                                    if not isinstance(backup_data.get(tbl), list) or not all(isinstance(row, dict) for row in backup_data.get(tbl, [])):
+                                        restore_errors.append(f"{tbl}: expected a list of object records")
+                                if restore_errors:
+                                    st.error("Restore preflight failed:")
+                                    for err in restore_errors:
+                                        st.write(f"- {err}")
+                                    st.stop()
+
+                                progress = st.progress(0, text="Restoring...")
+                                snapshots = {}
+                                restored_tables = []
                                 for i, tbl in enumerate(selected):
                                     try:
-                                        # Wipe existing
                                         existing = supabase.table(tbl).select("id").execute()
+                                        snapshot_resp = supabase.table(tbl).select("*").execute()
+                                        snapshots[tbl] = snapshot_resp.data if snapshot_resp.data else []
                                         if existing.data:
                                             for row in existing.data:
                                                 supabase.table(tbl).delete().eq('id', row['id']).execute()
-                                        # Insert backup rows
                                         for record in backup_data[tbl]:
-                                            # Strip created_at if present (let DB regenerate or keep as-is)
-                                            record_clean = {k: v for k, v in record.items() if k != 'id'}  # let DB regenerate IDs
-                                            supabase.table(tbl).insert(record_clean).execute()
+                                            supabase.table(tbl).insert(dict(record)).execute()
+                                        restored_tables.append(tbl)
                                         progress.progress((i + 1) / len(selected), text=f"Restored {tbl}")
                                     except Exception as e:
                                         restore_errors.append(f"{tbl}: {e}")
+                                        rollback_tables = restored_tables.copy()
+                                        if tbl in snapshots and tbl not in rollback_tables:
+                                            rollback_tables.append(tbl)
+                                        for rb_tbl in rollback_tables:
+                                            try:
+                                                current = supabase.table(rb_tbl).select("id").execute()
+                                                if current.data:
+                                                    for row in current.data:
+                                                        supabase.table(rb_tbl).delete().eq('id', row['id']).execute()
+                                                for record in snapshots.get(rb_tbl, []):
+                                                    supabase.table(rb_tbl).insert(dict(record)).execute()
+                                            except Exception as rb_err:
+                                                restore_errors.append(f"{rb_tbl} rollback failed: {rb_err}")
+                                        break
                                 progress.empty()
                                 if restore_errors:
                                     st.error("Some tables had errors:")
