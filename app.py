@@ -63,6 +63,18 @@ def fetch_vault_data(table_name, sort_column=None):
 
 def clear_cache():
     _fetch_cached.clear()
+def safe_float(value, default=0.0):
+    try:
+        if value is None or pd.isna(value):
+            return default
+        if isinstance(value, str):
+            value = value.strip()
+            if value == "" or value.lower() in ["nan", "none", "null"]:
+                return default
+            value = value.replace("$", "").replace(",", "")
+        return float(value)
+    except Exception:
+        return default
 
 def log_action(action, table_name=None, record_id=None, record_label=None, before_data=None, after_data=None):
     """Silent audit trail logger. Never blocks the main app on failure."""
@@ -404,10 +416,10 @@ if check_password():
                 lots = mat_row.get('lots', [])
                 if isinstance(lots, float) or (isinstance(lots, str) and lots in ["", "nan", "[]"]):
                     lots = []
-                default_p = float(mat_row['price_per_kg'])
+                default_p = safe_float(mat_row.get('price_per_kg', 0), 0.0)
                 if not lots: return default_p
-                total_val = sum(float(l.get('Qty (Kg)', 0)) * float(l.get('Price/Kg', default_p)) for l in lots)
-                total_q = sum(float(l.get('Qty (Kg)', 0)) for l in lots)
+                total_val = sum(safe_float(l.get('Qty (Kg)'), 0.0) * safe_float(l.get('Price/Kg'), default_p) for l in lots if isinstance(l, dict))
+                total_q = sum(safe_float(l.get('Qty (Kg)'), 0.0) for l in lots if isinstance(l, dict))
                 return (total_val / total_q) if total_q > 0 else default_p
 
             updates = 0
@@ -1258,8 +1270,8 @@ if check_password():
                         for l in lots_for_calc:
                             if 'Price/Kg' not in l or l.get('Price/Kg') in [None, '', 0]:
                                 l['Price/Kg'] = float(mat['price_per_kg'])
-                        total_value = sum(float(l.get('Qty (Kg)', 0)) * float(l.get('Price/Kg', mat['price_per_kg'])) for l in lots_for_calc)
-                        total_qty = sum(float(l.get('Qty (Kg)', 0)) for l in lots_for_calc)
+                        total_value = sum(safe_float(l.get('Qty (Kg)'), 0.0) * float(l.get('Price/Kg', mat['price_per_kg'])) for l in lots_for_calc)
+                        total_qty = sum(safe_float(l.get('Qty (Kg)'), 0.0) for l in lots_for_calc)
                         avg_cost = (total_value / total_qty) if total_qty > 0 else float(mat['price_per_kg'])
                         # Last cost = most recent lot by Rcv Date
                         sorted_lots = sorted(lots_for_calc, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
@@ -1791,14 +1803,14 @@ if check_password():
             lots = mat_row.get('lots', [])
             if isinstance(lots, float) or (isinstance(lots, str) and lots in ["", "nan", "[]"]):
                 lots = []
-            default_p = float(mat_row['price_per_kg'])
+            default_p = safe_float(mat_row.get('price_per_kg', 0), 0.0)
             if not lots:
                 return default_p, default_p
-            total_val = sum(float(l.get('Qty (Kg)', 0)) * float(l.get('Price/Kg', default_p)) for l in lots)
-            total_q = sum(float(l.get('Qty (Kg)', 0)) for l in lots)
+            total_val = sum(safe_float(l.get('Qty (Kg)'), 0.0) * safe_float(l.get('Price/Kg'), default_p) for l in lots)
+            total_q = sum(safe_float(l.get('Qty (Kg)'), 0.0) for l in lots if isinstance(l, dict))
             avg = (total_val / total_q) if total_q > 0 else default_p
             sorted_l = sorted(lots, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
-            last = float(sorted_l[0].get('Price/Kg', default_p)) if sorted_l else default_p
+            last = safe_float(sorted_l[0].get('Price/Kg'), default_p) if sorted_l else default_p
             return avg, last
 
         # Helper: compute fresh COGS for a saved profile using current RM prices
