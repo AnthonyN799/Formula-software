@@ -86,9 +86,11 @@ def get_auth_users():
     try:
         auth_config = st.secrets.get("auth", {})
         raw_users = auth_config.get("users", {})
+        top_level_secrets = st.secrets
     except Exception:
         auth_config = {}
         raw_users = {}
+        top_level_secrets = {}
     users = {}
     for username, config in raw_users.items():
         password = config.get("password") or config.get("pass")
@@ -98,11 +100,21 @@ def get_auth_users():
 
     fallback_users = {
         "anthony": {
-            "password": auth_config.get("anthony_password") or os.environ.get("ANTHONY_PASSWORD"),
+            "password": (
+                auth_config.get("anthony_password")
+                or top_level_secrets.get("ANTHONY_PASSWORD")
+                or top_level_secrets.get("anthony_password")
+                or os.environ.get("ANTHONY_PASSWORD")
+            ),
             "role": "admin",
         },
         "fadia": {
-            "password": auth_config.get("fadia_password") or os.environ.get("FADIA_PASSWORD"),
+            "password": (
+                auth_config.get("fadia_password")
+                or top_level_secrets.get("FADIA_PASSWORD")
+                or top_level_secrets.get("fadia_password")
+                or os.environ.get("FADIA_PASSWORD")
+            ),
             "role": "Analyst",
         },
     }
@@ -114,7 +126,13 @@ def get_auth_users():
 def get_admin_passcode():
     try:
         auth_config = st.secrets.get("auth", {})
-        passcode = auth_config.get("admin_passcode") or auth_config.get("admin_password")
+        passcode = (
+            auth_config.get("admin_passcode")
+            or auth_config.get("admin_password")
+            or st.secrets.get("ADMIN_PASSCODE")
+            or st.secrets.get("AUTH_ADMIN_PASSCODE")
+            or st.secrets.get("admin_passcode")
+        )
     except Exception:
         passcode = None
     if not passcode:
@@ -124,7 +142,7 @@ def get_admin_passcode():
 def verify_admin_passcode(passcode):
     expected = get_admin_passcode()
     if not expected:
-        st.error("Admin passcode is not configured. Add auth.admin_passcode to Streamlit secrets.")
+        st.error("Admin passcode is not configured. Add auth.admin_passcode or ADMIN_PASSCODE to Streamlit secrets.")
         return False
     return passcode == expected
 
@@ -428,7 +446,7 @@ def check_password():
         if st.button("Authenticate", use_container_width=True, type="primary"):
             users = get_auth_users()
             if not users:
-                st.error("No users configured. Add auth.users to Streamlit secrets.")
+                st.error("No users configured. Add auth.anthony_password/auth.fadia_password or ANTHONY_PASSWORD/FADIA_PASSWORD to Streamlit secrets.")
                 return False
             matched = users.get(username.strip().lower())
             if matched and password == matched["password"]:
