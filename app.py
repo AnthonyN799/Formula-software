@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 from supabase import create_client, Client
 from PIL import Image
+import os
 import re
 import time
 from fpdf import FPDF
@@ -83,8 +84,10 @@ def safe_float(value, default=0.0):
 
 def get_auth_users():
     try:
-        raw_users = st.secrets.get("auth", {}).get("users", {})
+        auth_config = st.secrets.get("auth", {})
+        raw_users = auth_config.get("users", {})
     except Exception:
+        auth_config = {}
         raw_users = {}
     users = {}
     for username, config in raw_users.items():
@@ -92,13 +95,30 @@ def get_auth_users():
         role = config.get("role", "Analyst")
         if password:
             users[str(username).strip().lower()] = {"password": str(password), "role": str(role)}
+
+    fallback_users = {
+        "anthony": {
+            "password": auth_config.get("anthony_password") or os.environ.get("ANTHONY_PASSWORD"),
+            "role": "admin",
+        },
+        "fadia": {
+            "password": auth_config.get("fadia_password") or os.environ.get("FADIA_PASSWORD"),
+            "role": "Analyst",
+        },
+    }
+    for username, config in fallback_users.items():
+        if username not in users and config["password"]:
+            users[username] = {"password": str(config["password"]), "role": config["role"]}
     return users
 
 def get_admin_passcode():
     try:
-        passcode = st.secrets.get("auth", {}).get("admin_passcode")
+        auth_config = st.secrets.get("auth", {})
+        passcode = auth_config.get("admin_passcode") or auth_config.get("admin_password")
     except Exception:
         passcode = None
+    if not passcode:
+        passcode = os.environ.get("ADMIN_PASSCODE") or os.environ.get("AUTH_ADMIN_PASSCODE")
     return str(passcode) if passcode else None
 
 def verify_admin_passcode(passcode):
