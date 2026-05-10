@@ -1270,8 +1270,8 @@ if check_password():
                         for l in lots_for_calc:
                             if 'Price/Kg' not in l or l.get('Price/Kg') in [None, '', 0]:
                                 l['Price/Kg'] = float(mat['price_per_kg'])
-                        total_value = sum(safe_float(l.get('Qty (Kg)'), 0.0) * float(l.get('Price/Kg', mat['price_per_kg'])) for l in lots_for_calc)
-                        total_qty = sum(safe_float(l.get('Qty (Kg)'), 0.0) for l in lots_for_calc)
+                        total_value = sum(safe_float(l.get('Qty (Kg)'), 0.0) * safe_float(l.get('Price/Kg'), safe_float(mat.get('price_per_kg', 0), 0.0)) for l in lots_for_calc if isinstance(l, dict))
+                        total_qty = sum(safe_float(l.get('Qty (Kg)'), 0.0) for l in lots_for_calc if isinstance(l, dict))
                         avg_cost = (total_value / total_qty) if total_qty > 0 else float(mat['price_per_kg'])
                         # Last cost = most recent lot by Rcv Date
                         sorted_lots = sorted(lots_for_calc, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
@@ -1806,10 +1806,10 @@ if check_password():
             default_p = safe_float(mat_row.get('price_per_kg', 0), 0.0)
             if not lots:
                 return default_p, default_p
-            total_val = sum(safe_float(l.get('Qty (Kg)'), 0.0) * safe_float(l.get('Price/Kg'), default_p) for l in lots)
+            total_val = sum(safe_float(l.get('Qty (Kg)'), 0.0) * safe_float(l.get('Price/Kg'), default_p) for l in lots if isinstance(l, dict))
             total_q = sum(safe_float(l.get('Qty (Kg)'), 0.0) for l in lots if isinstance(l, dict))
             avg = (total_val / total_q) if total_q > 0 else default_p
-            sorted_l = sorted(lots, key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
+            sorted_l = sorted([l for l in lots if isinstance(l, dict)], key=lambda x: str(x.get('Rcv Date', '')), reverse=True)
             last = safe_float(sorted_l[0].get('Price/Kg'), default_p) if sorted_l else default_p
             return avg, last
 
