@@ -490,6 +490,8 @@ cookie_manager = stx.CookieManager(key="auth_cookie_mgr")
 def check_password():
     if "authenticated" not in st.session_state: st.session_state["authenticated"] = False
     secret = _cookie_secret()
+    cookies = cookie_manager.get_all()          # None until the browser syncs the cookie, then a dict
+    cookie_synced = cookies is not None
 
     # Logout requested on a prior run: clear the cookie now, on a normal render.
     # (An immediate st.rerun() after delete tears the component down before the browser clears it.)
@@ -502,8 +504,8 @@ def check_password():
         just_logged_out = True
 
     # Restore a prior login from the signed cookie (survives a hard refresh).
-    if not st.session_state["authenticated"] and secret and not just_logged_out:
-        token = cookie_manager.get(COOKIE_NAME)
+    if not st.session_state["authenticated"] and secret and not just_logged_out and cookie_synced:
+        token = cookies.get(COOKIE_NAME)
         if token:
             payload = _read_auth_token(token, secret)
             if payload:
@@ -526,6 +528,12 @@ def check_password():
                 st.session_state["_auth_cookie_written"] = True
             except Exception: pass
         return True
+
+    # Cookie hasn't synced back from the browser yet: show a quiet placeholder instead of
+    # flashing the login form. The cookie component reruns once it loads, restoring the session.
+    if not cookie_synced and not just_logged_out:
+        st.markdown("<div style='text-align:center; opacity:0.4; padding-top:35vh;'>Loading…</div>", unsafe_allow_html=True)
+        st.stop()
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
