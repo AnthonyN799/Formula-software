@@ -1,13 +1,17 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 from PIL import Image
 import os
 import re
 import time
 import hmac
+import json
+import base64
+import hashlib
 import bcrypt
+import extra_streamlit_components as stx
 from fpdf import FPDF
 
 # --- 1. PAGE CONFIGURATION ---
@@ -446,9 +450,50 @@ def generate_batch_labels_pdf(product_name, batch_number, lot_number, date_str, 
         pdf.cell(label_w, 4, "Store in a cool, dark environment. Follow standard SOP.", ln=True, align="C")
     return pdf.output(dest="S").encode("latin-1")
 
+# --- Persistent-login cookie (survives page refresh for COOKIE_TTL_DAYS) ---
+COOKIE_NAME = "to_lab_auth"
+COOKIE_TTL_DAYS = 7
+
+def _make_auth_token(username, role, secret):
+    payload = {"u": str(username), "r": str(role), "exp": int(time.time()) + COOKIE_TTL_DAYS * 86400}
+    body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
+    sig = hmac.new(str(secret).encode(), body.encode(), hashlib.sha256).hexdigest()
+    return f"{body}.{sig}"
+
+def _read_auth_token(token, secret):
+    try:
+        body, sig = str(token).split(".", 1)
+        expected = hmac.new(str(secret).encode(), body.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(body.encode()).decode())
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+        return payload
+    except Exception:
+        return None
+
+cookie_manager = stx.CookieManager(key="auth_cookie_mgr")
+
 # --- Authentication Logic ---
 def check_password():
     if "authenticated" not in st.session_state: st.session_state["authenticated"] = False
+
+    # Restore a prior login from the signed cookie (survives a hard refresh).
+    if not st.session_state["authenticated"]:
+        secret = get_admin_passcode()
+        if secret:
+            token = cookie_manager.get(COOKIE_NAME)
+            if token:
+                payload = _read_auth_token(token, secret)
+                if payload:
+                    uname = str(payload.get("u", "")).strip().lower()
+                    users = get_auth_users()
+                    if uname in users:
+                        st.session_state["authenticated"] = True
+                        st.session_state["user_role"] = payload.get("r", users[uname]["role"])
+                        st.session_state["user_name"] = payload.get("u")
+
     if st.session_state["authenticated"]: return True
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -468,6 +513,12 @@ def check_password():
                 st.session_state["authenticated"] = True
                 st.session_state["user_role"] = matched["role"]
                 st.session_state["user_name"] = username
+                secret = get_admin_passcode()
+                if secret:
+                    try:
+                        cookie_manager.set(COOKIE_NAME, _make_auth_token(username, matched["role"], secret),
+                                           expires_at=datetime.now() + timedelta(days=COOKIE_TTL_DAYS), key="auth_cookie_set")
+                    except Exception: pass
                 try:
                     supabase.table('audit_log').insert({"username": str(username), "action": "LOGIN", "table_name": None, "record_id": None, "record_label": None, "before_data": None, "after_data": None}).execute()
                 except Exception: pass
@@ -602,7 +653,10 @@ if check_password():
         menu = st.session_state.active_nav
         st.write("<br><br>", unsafe_allow_html=True)
         st.markdown(f"<p style='opacity: 0.6; font-size: 0.8rem; text-align: center;'>Logged in as {st.session_state.get('user_name', 'User')}</p>", unsafe_allow_html=True)
-        if st.button("Log Out", use_container_width=True): st.session_state["authenticated"] = False; st.session_state["user_role"] = None; st.session_state["user_name"] = None; st.rerun()
+        if st.button("Log Out", use_container_width=True):
+            try: cookie_manager.delete(COOKIE_NAME, key="auth_cookie_del")
+            except Exception: pass
+            st.session_state["authenticated"] = False; st.session_state["user_role"] = None; st.session_state["user_name"] = None; st.rerun()
 
     # --- 1. SALES & REVENUE ---
     if menu == "Sales & Revenue":

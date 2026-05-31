@@ -4,3 +4,4 @@ supabase
 fpdf
 openpyxl
 bcrypt
+extra-streamlit-components
