@@ -1216,6 +1216,11 @@ if check_password():
             if filtered.empty:
                 st.warning("No data for selected filters.")
             else:
+                # --- Total Revenue Card ---
+                st.write("---")
+                total_revenue = pd.to_numeric(filtered['gross_revenue'], errors='coerce').fillna(0).sum()
+                st.metric("Total Revenue", f"${total_revenue:,.2f}")
+
                 # --- 1. Revenue Over Time (Monthly, by Year) ---
                 st.write("---")
                 st.markdown("#### Monthly Revenue Trend")
