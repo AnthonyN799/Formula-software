@@ -473,28 +473,60 @@ def _read_auth_token(token, secret):
     except Exception:
         return None
 
+def _cookie_secret():
+    # Server-side signing key for the auth cookie. Prefer the admin passcode;
+    # fall back to the Supabase key so persistence still works if no passcode is set.
+    sec = get_admin_passcode()
+    if sec:
+        return str(sec)
+    try:
+        return str(st.secrets["supabase"]["key"])
+    except Exception:
+        return None
+
 cookie_manager = stx.CookieManager(key="auth_cookie_mgr")
 
 # --- Authentication Logic ---
 def check_password():
     if "authenticated" not in st.session_state: st.session_state["authenticated"] = False
+    secret = _cookie_secret()
+
+    # Logout requested on a prior run: clear the cookie now, on a normal render.
+    # (An immediate st.rerun() after delete tears the component down before the browser clears it.)
+    just_logged_out = False
+    if st.session_state.get("_logging_out"):
+        try: cookie_manager.delete(COOKIE_NAME, key="auth_cookie_del")
+        except Exception: pass
+        st.session_state["_logging_out"] = False
+        st.session_state["authenticated"] = False
+        just_logged_out = True
 
     # Restore a prior login from the signed cookie (survives a hard refresh).
-    if not st.session_state["authenticated"]:
-        secret = get_admin_passcode()
-        if secret:
-            token = cookie_manager.get(COOKIE_NAME)
-            if token:
-                payload = _read_auth_token(token, secret)
-                if payload:
-                    uname = str(payload.get("u", "")).strip().lower()
-                    users = get_auth_users()
-                    if uname in users:
-                        st.session_state["authenticated"] = True
-                        st.session_state["user_role"] = payload.get("r", users[uname]["role"])
-                        st.session_state["user_name"] = payload.get("u")
+    if not st.session_state["authenticated"] and secret and not just_logged_out:
+        token = cookie_manager.get(COOKIE_NAME)
+        if token:
+            payload = _read_auth_token(token, secret)
+            if payload:
+                uname = str(payload.get("u", "")).strip().lower()
+                users = get_auth_users()
+                if uname in users:
+                    st.session_state["authenticated"] = True
+                    st.session_state["user_role"] = payload.get("r", users[uname]["role"])
+                    st.session_state["user_name"] = payload.get("u")
+                    st.session_state["_auth_cookie_written"] = True
 
-    if st.session_state["authenticated"]: return True
+    if st.session_state["authenticated"]:
+        # Write the persistence cookie once per session, on a normal render so the browser
+        # actually stores it (never immediately before an st.rerun(), which would discard it).
+        if not st.session_state.get("_auth_cookie_written") and secret and st.session_state.get("user_name"):
+            try:
+                cookie_manager.set(COOKIE_NAME,
+                    _make_auth_token(st.session_state["user_name"], st.session_state.get("user_role", "Analyst"), secret),
+                    expires_at=datetime.now() + timedelta(days=COOKIE_TTL_DAYS), key="auth_cookie_set")
+                st.session_state["_auth_cookie_written"] = True
+            except Exception: pass
+        return True
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.write("<br><br><br>", unsafe_allow_html=True)
@@ -513,12 +545,7 @@ def check_password():
                 st.session_state["authenticated"] = True
                 st.session_state["user_role"] = matched["role"]
                 st.session_state["user_name"] = username
-                secret = get_admin_passcode()
-                if secret:
-                    try:
-                        cookie_manager.set(COOKIE_NAME, _make_auth_token(username, matched["role"], secret),
-                                           expires_at=datetime.now() + timedelta(days=COOKIE_TTL_DAYS), key="auth_cookie_set")
-                    except Exception: pass
+                st.session_state["_auth_cookie_written"] = False  # cookie gets written on the next render
                 try:
                     supabase.table('audit_log').insert({"username": str(username), "action": "LOGIN", "table_name": None, "record_id": None, "record_label": None, "before_data": None, "after_data": None}).execute()
                 except Exception: pass
@@ -654,8 +681,8 @@ if check_password():
         st.write("<br><br>", unsafe_allow_html=True)
         st.markdown(f"<p style='opacity: 0.6; font-size: 0.8rem; text-align: center;'>Logged in as {st.session_state.get('user_name', 'User')}</p>", unsafe_allow_html=True)
         if st.button("Log Out", use_container_width=True):
-            try: cookie_manager.delete(COOKIE_NAME, key="auth_cookie_del")
-            except Exception: pass
+            st.session_state["_logging_out"] = True
+            st.session_state["_auth_cookie_written"] = False
             st.session_state["authenticated"] = False; st.session_state["user_role"] = None; st.session_state["user_name"] = None; st.rerun()
 
     # --- 1. SALES & REVENUE ---
