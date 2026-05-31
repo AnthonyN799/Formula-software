@@ -536,7 +536,6 @@ def check_password():
         time.sleep(1.0)
         st.rerun()
 
-    st.caption(f"debug · cookies seen: {list(cookies.keys())} · signing secret: {'set' if secret else 'MISSING'}")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.write("<br><br><br>", unsafe_allow_html=True)
@@ -1307,10 +1306,15 @@ if check_password():
             if filtered.empty:
                 st.warning("No data for selected filters.")
             else:
-                # --- Total Revenue Card ---
+                # --- Headline KPI Cards ---
                 st.write("---")
                 total_revenue = pd.to_numeric(filtered['gross_revenue'], errors='coerce').fillna(0).sum()
-                st.metric("Total Revenue", f"${total_revenue:,.2f}")
+                total_profit = pd.to_numeric(filtered['net_profit'], errors='coerce').fillna(0).sum()
+                avg_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0.0
+                kpi1, kpi2, kpi3 = st.columns(3)
+                kpi1.metric("Total Revenue", f"${total_revenue:,.2f}")
+                kpi2.metric("Total Profit", f"${total_profit:,.2f}")
+                kpi3.metric("Avg Gross Margin", f"{avg_margin:.1f}%")
 
                 # --- 1. Revenue Over Time (Monthly, by Year) ---
                 st.write("---")
