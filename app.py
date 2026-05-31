@@ -6,6 +6,8 @@ from PIL import Image
 import os
 import re
 import time
+import hmac
+import bcrypt
 from fpdf import FPDF
 
 # --- 1. PAGE CONFIGURATION ---
@@ -139,12 +141,25 @@ def get_admin_passcode():
         passcode = os.environ.get("ADMIN_PASSCODE") or os.environ.get("AUTH_ADMIN_PASSCODE")
     return str(passcode) if passcode else None
 
+def _verify_password(plaintext, stored):
+    """Constant-time check. Accepts a bcrypt hash (starts with $2) or a legacy plaintext secret."""
+    if not stored:
+        return False
+    plaintext = str(plaintext)
+    stored = str(stored)
+    if stored.startswith("$2"):  # bcrypt hash ($2a$/$2b$/$2y$)
+        try:
+            return bcrypt.checkpw(plaintext.encode("utf-8"), stored.encode("utf-8"))
+        except Exception:
+            return False
+    return hmac.compare_digest(plaintext, stored)
+
 def verify_admin_passcode(passcode):
     expected = get_admin_passcode()
     if not expected:
         st.error("Admin passcode is not configured. Add auth.admin_passcode or ADMIN_PASSCODE to Streamlit secrets.")
         return False
-    return passcode == expected
+    return _verify_password(passcode, expected)
 
 def log_action(action, table_name=None, record_id=None, record_label=None, before_data=None, after_data=None):
     """Silent audit trail logger. Never blocks the main app on failure."""
@@ -449,7 +464,7 @@ def check_password():
                 st.error("No users configured. Add auth.anthony_password/auth.fadia_password or ANTHONY_PASSWORD/FADIA_PASSWORD to Streamlit secrets.")
                 return False
             matched = users.get(username.strip().lower())
-            if matched and password == matched["password"]:
+            if matched and _verify_password(password, matched["password"]):
                 st.session_state["authenticated"] = True
                 st.session_state["user_role"] = matched["role"]
                 st.session_state["user_name"] = username

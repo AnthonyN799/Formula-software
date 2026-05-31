@@ -8,6 +8,16 @@ from email.mime.base import MIMEBase
 from email import encoders
 from supabase import create_client
 
+# 0. Validate required environment variables (fail loudly if a GitHub secret is misnamed/missing)
+_required_env = ["SUPABASE_URL", "SUPABASE_KEY", "GMAIL_USER", "GMAIL_APP_PASSWORD"]
+_missing_env = [name for name in _required_env if not os.environ.get(name)]
+if _missing_env:
+    raise SystemExit(
+        "Missing required environment variables: " + ", ".join(_missing_env) + ". "
+        "Check the GitHub repo secrets and the workflow env mapping "
+        "(SUPABASE_URL<-SUPA_URL, SUPABASE_KEY<-SUPA_KEY, GMAIL_USER, GMAIL_APP_PASSWORD)."
+    )
+
 # 1. Connect to Supabase using Environment Variables
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
