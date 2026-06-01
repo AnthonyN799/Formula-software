@@ -654,7 +654,7 @@ if check_password():
             "📊 Finance & Sales": ["Sales & Revenue", "Analytics", "Clients", "Consignment Tracker", "Financial Overview", "Balance Sheet"],
             "📦 Inventory Management": ["Raw Material Library", "Packaging Library", "Finished Products", "Purchase Requisition"],
             "⚗️ R&D & Production": ["Formula Library", "Formula Builder", "COGS Calculator", "Production Logs"],
-            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder", "Price Manager", "Bulk Import", "Backup & Restore", "Activity Log"]
+            "🛠️ Admin Tools": ["Data Cleaning", "Portfolio Builder", "Price Manager", "Bulk Import", "Sales Export", "Backup & Restore", "Activity Log"]
         }
     else:
         MODULES = {
@@ -3140,6 +3140,134 @@ if check_password():
                                 st.error(f"Restore failed: {e}")
                 except Exception as e:
                     st.error(f"Could not read backup file: {e}")
+
+    # --- SALES EXPORT ---
+    elif menu == "Sales Export":
+        st.title("Sales Export")
+        st.markdown("<p style='opacity: 0.6;'>Export a CSV of every financial metric per product sold — revenue, profit, margins, pricing, and volume.</p>", unsafe_allow_html=True)
+
+        d = load_tables('sales_records')
+        sales_df = d['sales_records']
+
+        if sales_df.empty:
+            st.info("No sales records to export yet.")
+        else:
+            sdf = sales_df.copy()
+            sdf['sale_date'] = pd.to_datetime(sdf['sale_date'], errors='coerce')
+
+            # Normalise numeric columns (guard against missing/older records)
+            for col in ['quantity', 'unit_price', 'gross_revenue', 'cogs', 'net_profit']:
+                if col in sdf.columns:
+                    sdf[col] = pd.to_numeric(sdf[col], errors='coerce').fillna(0.0)
+                else:
+                    sdf[col] = 0.0
+            # If COGS is missing/blank, derive it from revenue - profit
+            missing_cogs = sdf['cogs'] <= 0
+            sdf.loc[missing_cogs, 'cogs'] = (sdf['gross_revenue'] - sdf['net_profit']).clip(lower=0)
+
+            # --- Filters ---
+            fc1, fc2 = st.columns(2)
+            status_opts = ["All"] + sorted([s for s in sdf['status'].dropna().unique().tolist()]) if 'status' in sdf.columns else ["All"]
+            sel_status = fc1.selectbox("Order status", status_opts)
+            years = sorted(sdf['sale_date'].dt.year.dropna().unique().astype(int).tolist(), reverse=True)
+            sel_years = fc2.multiselect("Year(s) — leave empty for all", years)
+
+            work = sdf.copy()
+            if sel_status != "All" and 'status' in work.columns:
+                work = work[work['status'] == sel_status]
+            if sel_years:
+                work = work[work['sale_date'].dt.year.isin(sel_years)]
+
+            if work.empty:
+                st.warning("No sales match the selected filters.")
+            else:
+                ref_col = 'order_ref_number' if 'order_ref_number' in work.columns else None
+
+                def _agg(group):
+                    units = group['quantity'].sum()
+                    revenue = group['gross_revenue'].sum()
+                    cogs = group['cogs'].sum()
+                    profit = group['net_profit'].sum()
+                    orders = group[ref_col].nunique() if ref_col else len(group)
+                    return pd.Series({
+                        "Units Sold": units,
+                        "Orders": orders,
+                        "Transactions": len(group),
+                        "Total Revenue": revenue,
+                        "Total COGS": cogs,
+                        "Total Profit": profit,
+                        "Avg Gross Margin %": (profit / revenue * 100) if revenue > 0 else 0.0,
+                        "Avg Sale Price": (revenue / units) if units > 0 else 0.0,
+                        "Avg Unit Cost": (cogs / units) if units > 0 else 0.0,
+                        "Min Unit Price": group['unit_price'].min(),
+                        "Max Unit Price": group['unit_price'].max(),
+                        "First Sale": group['sale_date'].min(),
+                        "Last Sale": group['sale_date'].max(),
+                    })
+
+                summary = work.groupby('order_description', dropna=False).apply(_agg).reset_index()
+                summary = summary.rename(columns={"order_description": "Product"})
+                summary = summary.sort_values("Total Revenue", ascending=False)
+
+                # Format dates for readability
+                for dcol in ["First Sale", "Last Sale"]:
+                    summary[dcol] = pd.to_datetime(summary[dcol], errors='coerce').dt.strftime('%Y-%m-%d')
+
+                # Totals row
+                tot_units = work['quantity'].sum()
+                tot_rev = work['gross_revenue'].sum()
+                tot_cogs = work['cogs'].sum()
+                tot_profit = work['net_profit'].sum()
+                totals = {
+                    "Product": "— ALL PRODUCTS —",
+                    "Units Sold": tot_units,
+                    "Orders": work[ref_col].nunique() if ref_col else len(work),
+                    "Transactions": len(work),
+                    "Total Revenue": tot_rev,
+                    "Total COGS": tot_cogs,
+                    "Total Profit": tot_profit,
+                    "Avg Gross Margin %": (tot_profit / tot_rev * 100) if tot_rev > 0 else 0.0,
+                    "Avg Sale Price": (tot_rev / tot_units) if tot_units > 0 else 0.0,
+                    "Avg Unit Cost": (tot_cogs / tot_units) if tot_units > 0 else 0.0,
+                    "Min Unit Price": work['unit_price'].min(),
+                    "Max Unit Price": work['unit_price'].max(),
+                    "First Sale": "", "Last Sale": "",
+                }
+                export_df = pd.concat([summary, pd.DataFrame([totals])], ignore_index=True)
+
+                # KPI snapshot
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Products", f"{summary.shape[0]:,}")
+                k2.metric("Total Revenue", f"${tot_rev:,.2f}")
+                k3.metric("Total Profit", f"${tot_profit:,.2f}")
+                k4.metric("Avg Gross Margin", f"{(tot_profit / tot_rev * 100) if tot_rev > 0 else 0.0:.1f}%")
+
+                st.write("---")
+                st.markdown("#### Per-Product Financial Breakdown")
+                st.dataframe(
+                    summary, use_container_width=True, hide_index=True,
+                    column_config={
+                        "Total Revenue": st.column_config.NumberColumn(format="$%.2f"),
+                        "Total COGS": st.column_config.NumberColumn(format="$%.2f"),
+                        "Total Profit": st.column_config.NumberColumn(format="$%.2f"),
+                        "Avg Gross Margin %": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Avg Sale Price": st.column_config.NumberColumn(format="$%.2f"),
+                        "Avg Unit Cost": st.column_config.NumberColumn(format="$%.2f"),
+                        "Min Unit Price": st.column_config.NumberColumn(format="$%.2f"),
+                        "Max Unit Price": st.column_config.NumberColumn(format="$%.2f"),
+                    }
+                )
+
+                csv_bytes = export_df.to_csv(index=False).encode('utf-8')
+                fname = f"product_financials_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                st.download_button("⬇️ Download Product Financials CSV", data=csv_bytes, file_name=fname, mime="text/csv", type="primary", use_container_width=True)
+
+                with st.expander("📄 Also export raw transactions (every line item)"):
+                    raw_cols = [c for c in ['sale_date', 'order_ref_number', 'account', 'order_description', 'quantity', 'unit_price', 'gross_revenue', 'cogs', 'net_profit', 'channel', 'status'] if c in work.columns]
+                    raw = work[raw_cols].copy()
+                    raw['sale_date'] = pd.to_datetime(raw['sale_date'], errors='coerce').dt.strftime('%Y-%m-%d')
+                    raw_csv = raw.sort_values('sale_date', ascending=False).to_csv(index=False).encode('utf-8')
+                    st.download_button("⬇️ Download Raw Transactions CSV", data=raw_csv, file_name=f"sales_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv", use_container_width=True)
 
     # --- ACTIVITY LOG ---
     elif menu == "Activity Log":
